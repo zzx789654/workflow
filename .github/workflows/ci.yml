@@ -1,4 +1,4 @@
-name: CI — WorkFlow Secure Build (G5)
+name: CI
 
 on:
   push:
@@ -14,11 +14,8 @@ env:
   POSTGRES_DB: workflow_test
 
 jobs:
-  # ──────────────────────────────────────────────
-  # 維度：品質 — 後端 Lint + 格式檢查
-  # ──────────────────────────────────────────────
   backend-lint:
-    name: "Backend Lint"
+    name: Backend Lint
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -41,11 +38,8 @@ jobs:
       - name: Ruff format check
         run: ruff format app tests --check
 
-  # ──────────────────────────────────────────────
-  # 維度：功能/品質 — 後端單元 + 整合測試
-  # ──────────────────────────────────────────────
   backend-test:
-    name: "Backend Tests"
+    name: Backend Tests
     runs-on: ubuntu-latest
     needs: backend-lint
 
@@ -119,11 +113,8 @@ jobs:
           name: coverage-report
           path: backend/coverage.xml
 
-  # ──────────────────────────────────────────────
-  # 維度：品質 — 前端 Lint + 型別 + Build
-  # ──────────────────────────────────────────────
   frontend-lint-build:
-    name: "Frontend Lint & Build"
+    name: Frontend Lint and Build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -142,7 +133,7 @@ jobs:
       - name: TypeScript type-check
         run: npx tsc --noEmit
 
-      - name: Build (production)
+      - name: Build production
         run: npm run build
 
       - name: Upload dist artifact
@@ -151,12 +142,8 @@ jobs:
           name: frontend-dist
           path: frontend/dist/
 
-  # ──────────────────────────────────────────────
-  # 維度：資安 — SAST（Semgrep OWASP Top 10）
-  # Critical/High → blocks build
-  # ──────────────────────────────────────────────
   sast:
-    name: "SAST — Semgrep"
+    name: SAST Semgrep
     runs-on: ubuntu-latest
     needs: [backend-lint, frontend-lint-build]
 
@@ -170,7 +157,7 @@ jobs:
       - name: Install Semgrep
         run: pip install semgrep
 
-      - name: Semgrep — Python backend (OWASP Top 10)
+      - name: Semgrep Python backend
         run: |
           semgrep \
             --config=p/owasp-top-ten \
@@ -180,7 +167,7 @@ jobs:
             --severity=ERROR \
             backend/app/
 
-      - name: Semgrep — TypeScript frontend
+      - name: Semgrep TypeScript frontend
         run: |
           semgrep \
             --config=p/typescript \
@@ -189,11 +176,8 @@ jobs:
             --severity=ERROR \
             frontend/src/
 
-  # ──────────────────────────────────────────────
-  # 維度：資安 — Secret Scan（Gitleaks）
-  # ──────────────────────────────────────────────
   secret-scan:
-    name: "Secret Scan — Gitleaks"
+    name: Secret Scan Gitleaks
     runs-on: ubuntu-latest
 
     steps:
@@ -206,12 +190,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ──────────────────────────────────────────────
-  # 維度：資安 — SCA（osv-scanner + npm audit）
-  # Critical CVE → blocks build
-  # ──────────────────────────────────────────────
   sca:
-    name: "SCA — Dependency Audit"
+    name: SCA Dependency Audit
     runs-on: ubuntu-latest
 
     steps:
@@ -223,26 +203,22 @@ jobs:
 
       - name: Install osv-scanner
         run: |
-          curl -fsSL https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 \
+          curl -fsSL \
+            https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 \
             -o /usr/local/bin/osv-scanner
           chmod +x /usr/local/bin/osv-scanner
 
-      - name: Python SCA — osv-scanner (requirements.txt only)
-        run: |
-          osv-scanner --lockfile=requirements.txt:backend/requirements.txt --format=table
+      - name: Python SCA osv-scanner
+        run: osv-scanner --lockfile=requirements.txt:backend/requirements.txt --format=table
 
-      - name: Node SCA — npm audit
+      - name: Node SCA npm audit
         working-directory: frontend
         run: |
           npm install
           npm audit --audit-level=critical
 
-  # ──────────────────────────────────────────────
-  # G5 通過 — 產出 Docker image artifact
-  # 所有 gate 全綠才執行
-  # ──────────────────────────────────────────────
   build-image:
-    name: "Build Docker Images (G5 artifact)"
+    name: Build Docker Images
     runs-on: ubuntu-latest
     needs: [backend-test, sast, secret-scan, sca]
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
@@ -279,11 +255,8 @@ jobs:
           path: /tmp/workflow-backend.tar
           retention-days: 1
 
-  # ──────────────────────────────────────────────
-  # CI 失敗通知
-  # ──────────────────────────────────────────────
   notify-failure:
-    name: "Notify CI Failure"
+    name: Notify CI Failure
     runs-on: ubuntu-latest
     needs: [backend-test, frontend-lint-build, sast, secret-scan, sca]
     if: failure()
@@ -291,8 +264,4 @@ jobs:
     steps:
       - name: Report failure
         run: |
-          echo "::error::CI 失敗，依根因退回對應角色："
-          echo "::error::  - Build/測試失敗 → DevSecOps Dev"
-          echo "::error::  - SAST/Secret Scan → DevSecOps Sec"
-          echo "::error::  - SCA CVE → DevSecOps Sec（升版套件）"
-          echo "::error::  - 覆蓋率未達 → QA"
+          echo "::error::CI failed. Check job logs above."
