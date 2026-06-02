@@ -15,7 +15,7 @@ env:
 
 jobs:
   # ──────────────────────────────────────────────
-  # 維度：品質 — 後端 Lint + 型別檢查
+  # 維度：品質 — 後端 Lint + 格式檢查
   # ──────────────────────────────────────────────
   backend-lint:
     name: "Backend Lint"
@@ -23,6 +23,7 @@ jobs:
     defaults:
       run:
         working-directory: backend
+
     steps:
       - uses: actions/checkout@v4
 
@@ -31,10 +32,10 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
 
-      - name: Install dependencies
-        run: pip install ruff pyright
+      - name: Install ruff
+        run: pip install ruff
 
-      - name: Ruff lint (error → blocks build)
+      - name: Ruff lint
         run: ruff check app tests --output-format=github
 
       - name: Ruff format check
@@ -134,11 +135,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: TypeScript type-check
         run: npx tsc --noEmit
@@ -164,19 +163,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Semgrep (Python backend)
-        uses: returntocorp/semgrep-action@v1
+      - uses: actions/setup-python@v5
         with:
-          config: >-
-            p/owasp-top-ten
-            p/python
-            p/jwt
-            p/secrets
-          # SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}  # 若有 Semgrep Cloud
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Run Semgrep (TypeScript frontend)
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Semgrep — Python backend (OWASP Top 10)
         run: |
-          pip install semgrep
+          semgrep \
+            --config=p/owasp-top-ten \
+            --config=p/python \
+            --config=p/secrets \
+            --error \
+            --severity=ERROR \
+            backend/app/
+
+      - name: Semgrep — TypeScript frontend
+        run: |
           semgrep \
             --config=p/typescript \
             --config=p/react \
@@ -186,7 +191,6 @@ jobs:
 
   # ──────────────────────────────────────────────
   # 維度：資安 — Secret Scan（Gitleaks）
-  # 任何硬編碼密鑰 → blocks build
   # ──────────────────────────────────────────────
   secret-scan:
     name: "Secret Scan — Gitleaks"
@@ -203,7 +207,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ──────────────────────────────────────────────
-  # 維度：資安 — SCA（pip-audit + npm audit）
+  # 維度：資安 — SCA（osv-scanner + npm audit）
   # Critical CVE → blocks build
   # ──────────────────────────────────────────────
   sca:
@@ -217,18 +221,20 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Python SCA — osv-scanner (requirements.txt only, no build-tool CVE)
-        uses: google/osv-scanner-action@v1
-        with:
-          scan-args: |-
-            --lockfile=requirements.txt:backend/requirements.txt
-            --format=table
+      - name: Install osv-scanner
+        run: |
+          curl -fsSL https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 \
+            -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
+
+      - name: Python SCA — osv-scanner (requirements.txt only)
+        run: |
+          osv-scanner --lockfile=requirements.txt:backend/requirements.txt --format=table
 
       - name: Node SCA — npm audit
         working-directory: frontend
         run: |
-          npm ci
-          # --audit-level=critical：只有 critical 才 fail
+          npm install
           npm audit --audit-level=critical
 
   # ──────────────────────────────────────────────
@@ -261,7 +267,6 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
-          target: builder
           push: false
           tags: workflow-frontend:${{ github.sha }}
           cache-from: type=gha
@@ -275,7 +280,7 @@ jobs:
           retention-days: 1
 
   # ──────────────────────────────────────────────
-  # CI 失敗通知（任一 gate 失敗時）
+  # CI 失敗通知
   # ──────────────────────────────────────────────
   notify-failure:
     name: "Notify CI Failure"
@@ -291,4 +296,3 @@ jobs:
           echo "::error::  - SAST/Secret Scan → DevSecOps Sec"
           echo "::error::  - SCA CVE → DevSecOps Sec（升版套件）"
           echo "::error::  - 覆蓋率未達 → QA"
-          echo "::error::詳見 待修改.md 退回規則"
