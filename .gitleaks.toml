@@ -2,7 +2,7 @@
 useDefault = true
 
 [[rules.allowlist]]
-description = "Ignore test fixtures and placeholder passwords"
+description = "Ignore test fixtures, placeholder passwords and dev defaults"
 regexes = [
   "change_me_",
   "CHANGE_ME",
@@ -12,12 +12,17 @@ regexes = [
   "Admin1234",
   "E2ETest1234",
   "Secure1234",
+  "dev_secret_key_change_in_production",
+  "workflow_pass",
 ]
 paths = [
   ".env.example",
+  "backend/alembic.ini",
+  "backend/app/core/config.py",
   "tests/conftest.py",
-  "tests/test_auth.py",
-  "tests/test_projects.py",
+  "backend/tests/conftest.py",
+  "backend/tests/test_auth.py",
+  "backend/tests/test_projects.py",
   ".github/workflows/cd.yml",
   ".github/workflows/ci.yml",
 ]
