@@ -1,4 +1,4 @@
-import type { Task, TaskPriority, TaskStatus, User } from '../../types'
+import type { Task, User } from '../../types'
 
 export interface KanbanFilter {
   assigneeId: string

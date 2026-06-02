@@ -4,11 +4,10 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_register_success(client: AsyncClient):
-    resp = await client.post("/api/v1/auth/register", json={
-        "email": "newuser@test.com",
-        "display_name": "New User",
-        "password": "Secure1234"
-    })
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "newuser@test.com", "display_name": "New User", "password": "Secure1234"},
+    )
     assert resp.status_code == 201
     data = resp.json()
     assert data["email"] == "newuser@test.com"
@@ -25,11 +24,9 @@ async def test_register_duplicate_email(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_register_weak_password(client: AsyncClient):
-    resp = await client.post("/api/v1/auth/register", json={
-        "email": "weak@test.com",
-        "display_name": "Weak",
-        "password": "nodigit"
-    })
+    resp = await client.post(
+        "/api/v1/auth/register", json={"email": "weak@test.com", "display_name": "Weak", "password": "nodigit"}
+    )
     assert resp.status_code == 422
 
 

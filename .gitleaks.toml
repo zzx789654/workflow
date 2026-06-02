@@ -2,7 +2,7 @@
 useDefault = true
 
 [[rules.allowlist]]
-description = "Ignore test fixtures and .env.example placeholders"
+description = "Ignore test fixtures and placeholder passwords"
 regexes = [
   "change_me_",
   "CHANGE_ME",
@@ -16,6 +16,8 @@ regexes = [
 paths = [
   ".env.example",
   "tests/conftest.py",
+  "tests/test_auth.py",
+  "tests/test_projects.py",
   ".github/workflows/cd.yml",
   ".github/workflows/ci.yml",
 ]
