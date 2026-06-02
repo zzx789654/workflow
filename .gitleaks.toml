@@ -1,0 +1,21 @@
+[extend]
+useDefault = true
+
+[[rules.allowlist]]
+description = "Ignore test fixtures and .env.example placeholders"
+regexes = [
+  "change_me_",
+  "CHANGE_ME",
+  "ci_test_secret_key",
+  "workflow_test_pass",
+  "staging_test_pass",
+  "Admin1234",
+  "E2ETest1234",
+  "Secure1234",
+]
+paths = [
+  ".env.example",
+  "tests/conftest.py",
+  ".github/workflows/cd.yml",
+  ".github/workflows/ci.yml",
+]

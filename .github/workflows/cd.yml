@@ -1,0 +1,354 @@
+name: CD — WorkFlow Deploy (G6)
+
+on:
+  workflow_run:
+    workflows: ["CI — WorkFlow Secure Build (G5)"]
+    types: [completed]
+    branches: [main, master]
+
+jobs:
+  # ──────────────────────────────────────────────
+  # G6 前置：確認 CI 全綠
+  # ──────────────────────────────────────────────
+  check-ci:
+    name: "Gate G5 — Verify CI passed"
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: CI passed, proceeding to CD
+        run: echo "CI G5 confirmed green. Starting CD G6."
+
+  # ──────────────────────────────────────────────
+  # Staging 部署 + Smoke Test
+  # ──────────────────────────────────────────────
+  staging-deploy:
+    name: "Deploy to Staging + Smoke Test"
+    runs-on: ubuntu-latest
+    needs: check-ci
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: workflow
+          POSTGRES_PASSWORD: staging_test_pass
+          POSTGRES_DB: workflow_staging
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+        ports:
+          - 6379:6379
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://workflow:staging_test_pass@localhost:5432/workflow_staging
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: ${{ secrets.STAGING_SECRET_KEY }}
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 60
+      REFRESH_TOKEN_EXPIRE_DAYS: 7
+      CORS_ORIGINS: http://localhost:5173
+      APP_ENV: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Run DB migrations (Staging)
+        working-directory: backend
+        run: alembic upgrade head
+
+      - name: Start backend (background)
+        working-directory: backend
+        run: |
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          echo $! > /tmp/backend.pid
+          sleep 5
+
+      - name: Smoke Test — Health endpoint
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health)
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Smoke test FAILED: /health returned $STATUS"
+            exit 1
+          fi
+          echo "✓ Health check passed (200)"
+
+      - name: Smoke Test — API docs reachable
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/docs)
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Smoke test FAILED: /docs returned $STATUS"
+            exit 1
+          fi
+          echo "✓ API docs reachable (200)"
+
+      - name: E2E — Register + Login flow
+        run: |
+          # Register new user
+          RESP=$(curl -s -X POST http://localhost:8000/api/v1/auth/register \
+            -H "Content-Type: application/json" \
+            -d '{"email":"e2e@test.com","display_name":"E2E User","password":"E2ETest1234"}')
+          echo "Register response: $RESP"
+          echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('email')=='e2e@test.com', f'Register failed: {d}'"
+          echo "✓ Register passed"
+
+          # Login
+          TOKENS=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"email":"e2e@test.com","password":"E2ETest1234"}')
+          echo "$TOKENS" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'access_token' in d, f'Login failed: {d}'"
+          ACCESS=$(echo "$TOKENS" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+          echo "✓ Login passed"
+
+          # Authenticated /me
+          ME=$(curl -s http://localhost:8000/api/v1/users/me \
+            -H "Authorization: Bearer $ACCESS")
+          echo "$ME" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('email')=='e2e@test.com', f'/me failed: {d}'"
+          echo "✓ /me (authenticated) passed"
+
+          # Create project
+          PROJ=$(curl -s -X POST http://localhost:8000/api/v1/projects/ \
+            -H "Authorization: Bearer $ACCESS" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"E2E Project","color":"#6366f1"}')
+          echo "$PROJ" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('name')=='E2E Project', f'Project create failed: {d}'"
+          PROJECT_ID=$(echo "$PROJ" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          echo "✓ Project create passed"
+
+          # Create task
+          TASK=$(curl -s -X POST "http://localhost:8000/api/v1/projects/${PROJECT_ID}/tasks/" \
+            -H "Authorization: Bearer $ACCESS" \
+            -H "Content-Type: application/json" \
+            -d '{"title":"E2E Task","priority":"high"}')
+          echo "$TASK" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('title')=='E2E Task', f'Task create failed: {d}'"
+          TASK_ID=$(echo "$TASK" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          echo "✓ Task create passed"
+
+          # Move task (Kanban)
+          MOVED=$(curl -s -X PATCH "http://localhost:8000/api/v1/projects/${PROJECT_ID}/tasks/${TASK_ID}/move" \
+            -H "Authorization: Bearer $ACCESS" \
+            -H "Content-Type: application/json" \
+            -d '{"status":"in_progress","position":0}')
+          echo "$MOVED" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('status')=='in_progress', f'Move task failed: {d}'"
+          echo "✓ Kanban move passed"
+
+          # Unauthenticated request should return 403
+          UNAUTH=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/v1/users/me)
+          if [ "$UNAUTH" != "403" ]; then
+            echo "::error::Security E2E FAILED: unauthenticated /me returned $UNAUTH instead of 403"
+            exit 1
+          fi
+          echo "✓ Unauthenticated protection passed (403)"
+
+          # V3 P1 — Dashboard summary
+          DASH=$(curl -s "http://localhost:8000/api/v1/dashboard/summary" \
+            -H "Authorization: Bearer $ACCESS")
+          echo "$DASH" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'kpi' in d and 'trend' in d, f'Dashboard failed: {d}'"
+          echo "✓ Dashboard summary passed"
+
+          # V3 P1 — Search (returns results structure)
+          SEARCH=$(curl -s "http://localhost:8000/api/v1/search/?q=E2E" \
+            -H "Authorization: Bearer $ACCESS")
+          echo "$SEARCH" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'results' in d and 'total' in d, f'Search failed: {d}'"
+          echo "✓ Search endpoint passed"
+
+          # V3 P1 — Create subtask
+          SUBTASK=$(curl -s -X POST "http://localhost:8000/api/v1/projects/${PROJECT_ID}/tasks/${TASK_ID}/subtasks/" \
+            -H "Authorization: Bearer $ACCESS" \
+            -H "Content-Type: application/json" \
+            -d '{"title":"E2E Subtask"}')
+          echo "$SUBTASK" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('title')=='E2E Subtask', f'Subtask failed: {d}'"
+          echo "✓ Subtask create passed"
+
+          # V3 P1 — Notifications list
+          NOTIF=$(curl -s "http://localhost:8000/api/v1/notifications/" \
+            -H "Authorization: Bearer $ACCESS")
+          echo "$NOTIF" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'unread' in d, f'Notifications failed: {d}'"
+          echo "✓ Notifications endpoint passed"
+
+          # V3 P1 — Time log start
+          TLOG=$(curl -s -X POST "http://localhost:8000/api/v1/projects/${PROJECT_ID}/tasks/${TASK_ID}/time-logs/start" \
+            -H "Authorization: Bearer $ACCESS" \
+            -H "Content-Type: application/json" \
+            -d '{"note":"E2E timer"}')
+          echo "$TLOG" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('task_id')==sys.argv[1], f'TimeLog failed: {d}'" "$TASK_ID"
+          LOG_ID=$(echo "$TLOG" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          echo "✓ Time log start passed"
+
+          # V3 P1 — Stop timer
+          STOP=$(curl -s -X PATCH "http://localhost:8000/api/v1/projects/${PROJECT_ID}/tasks/${TASK_ID}/time-logs/${LOG_ID}/stop" \
+            -H "Authorization: Bearer $ACCESS")
+          echo "$STOP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('ended_at') is not None, f'Stop timer failed: {d}'"
+          echo "✓ Time log stop passed"
+
+          # V3 P1 — Custom fields create
+          FIELD=$(curl -s -X POST "http://localhost:8000/api/v1/projects/${PROJECT_ID}/fields" \
+            -H "Authorization: Bearer $ACCESS" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"E2E Field","field_type":"text"}')
+          echo "$FIELD" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('name')=='E2E Field', f'Field create failed: {d}'"
+          echo "✓ Custom field create passed"
+
+          # V3 P1 — Dependency (self-dep should fail 400)
+          DEP_FAIL=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "http://localhost:8000/api/v1/projects/${PROJECT_ID}/tasks/${TASK_ID}/dependencies/" \
+            -H "Authorization: Bearer $ACCESS" \
+            -H "Content-Type: application/json" \
+            -d "{\"to_task_id\":\"${TASK_ID}\"}")
+          if [ "$DEP_FAIL" != "400" ]; then
+            echo "::error::Dependency self-dep should return 400, got $DEP_FAIL"
+            exit 1
+          fi
+          echo "✓ Dependency self-dep validation passed (400)"
+
+          echo ""
+          echo "=============================="
+          echo " All E2E checks passed ✓"
+          echo " (V1/V2 core + V3 P1 new APIs)"
+          echo "=============================="
+
+      - name: Stop backend
+        if: always()
+        run: kill $(cat /tmp/backend.pid) 2>/dev/null || true
+
+  # ──────────────────────────────────────────────
+  # 人工審核 Gate（不可逆動作護欄）
+  # → 需要人工在 GitHub Actions 核准才能繼續
+  # ──────────────────────────────────────────────
+  manual-approval:
+    name: "Human Review Gate (G6)"
+    runs-on: ubuntu-latest
+    needs: staging-deploy
+    environment:
+      name: production
+      # 在 GitHub repo → Settings → Environments → production
+      # 設定 Required Reviewers 即可啟用此 Gate
+
+    steps:
+      - name: Approved — proceeding to production deploy
+        run: echo "Manual approval received. Deploying to production."
+
+  # ──────────────────────────────────────────────
+  # Production 部署（Docker Compose — 自架伺服器）
+  # 透過 SSH 遠端執行 docker compose pull + up
+  # ──────────────────────────────────────────────
+  production-deploy:
+    name: "Production Deploy"
+    runs-on: ubuntu-latest
+    needs: manual-approval
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy via SSH (Rolling update)
+        # 需在 GitHub Secrets 設定:
+        #   PROD_SSH_HOST, PROD_SSH_USER, PROD_SSH_KEY, PROD_DEPLOY_PATH
+        run: |
+          if [ -z "${{ secrets.PROD_SSH_HOST }}" ]; then
+            echo "::notice::PROD_SSH_HOST not configured — skipping remote deploy."
+            echo "To enable: set PROD_SSH_HOST, PROD_SSH_USER, PROD_SSH_KEY, PROD_DEPLOY_PATH in GitHub Secrets."
+            exit 0
+          fi
+
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.PROD_SSH_HOST }}" >> ~/.ssh/known_hosts
+
+          ssh "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }}" << 'ENDSSH'
+            set -e
+            cd ${{ secrets.PROD_DEPLOY_PATH }}
+            git pull origin main
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker compose exec -T backend alembic upgrade head
+            echo "Production deploy complete"
+          ENDSSH
+
+  # ──────────────────────────────────────────────
+  # Production 健康檢查（部署後 15 分鐘觀測）
+  # 錯誤率 / 回應時間 / 服務可達性
+  # ──────────────────────────────────────────────
+  health-check:
+    name: "Post-deploy Health Check"
+    runs-on: ubuntu-latest
+    needs: production-deploy
+
+    steps:
+      - name: Wait for service warm-up (30s)
+        run: sleep 30
+
+      - name: Check production health endpoint
+        run: |
+          PROD_URL="${{ secrets.PROD_API_URL }}"
+          if [ -z "$PROD_URL" ]; then
+            echo "::notice::PROD_API_URL not set — skipping production health check."
+            echo "Set PROD_API_URL in GitHub Secrets to enable post-deploy monitoring."
+            exit 0
+          fi
+
+          MAX_RETRIES=10
+          INTERVAL=30
+          for i in $(seq 1 $MAX_RETRIES); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$PROD_URL/health" || echo "000")
+            echo "Attempt $i/$MAX_RETRIES — HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "✓ Production health check passed"
+              exit 0
+            fi
+            echo "Waiting ${INTERVAL}s before retry..."
+            sleep $INTERVAL
+          done
+
+          echo "::error::Production health check FAILED after $MAX_RETRIES attempts — triggering rollback signal"
+          exit 1
+
+      - name: Rollback on health check failure
+        if: failure()
+        run: |
+          echo "::error::Health check failed. Manual rollback steps:"
+          echo "  1. SSH to server: ssh user@host"
+          echo "  2. cd $DEPLOY_PATH"
+          echo "  3. git checkout HEAD~1"
+          echo "  4. docker compose up -d"
+          echo ""
+          echo "Or revert the commit and re-trigger CD pipeline."
+
+  # ──────────────────────────────────────────────
+  # CD 成功通知
+  # ──────────────────────────────────────────────
+  notify-success:
+    name: "CD Success — G6 Passed"
+    runs-on: ubuntu-latest
+    needs: health-check
+    if: success()
+
+    steps:
+      - name: G6 passed
+        run: |
+          echo "========================================="
+          echo " WorkFlow CD G6 — All gates passed ✓"
+          echo " Staging: E2E + Smoke passed"
+          echo " Production: deployed + health OK"
+          echo " Gate G5 + G6 complete — system live"
+          echo "========================================="

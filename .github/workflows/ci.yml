@@ -1,0 +1,294 @@
+name: CI — WorkFlow Secure Build (G5)
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+  POSTGRES_USER: workflow
+  POSTGRES_PASSWORD: workflow_test_pass
+  POSTGRES_DB: workflow_test
+
+jobs:
+  # ──────────────────────────────────────────────
+  # 維度：品質 — 後端 Lint + 型別檢查
+  # ──────────────────────────────────────────────
+  backend-lint:
+    name: "Backend Lint"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install ruff pyright
+
+      - name: Ruff lint (error → blocks build)
+        run: ruff check app tests --output-format=github
+
+      - name: Ruff format check
+        run: ruff format app tests --check
+
+  # ──────────────────────────────────────────────
+  # 維度：功能/品質 — 後端單元 + 整合測試
+  # ──────────────────────────────────────────────
+  backend-test:
+    name: "Backend Tests"
+    runs-on: ubuntu-latest
+    needs: backend-lint
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+        ports:
+          - 6379:6379
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@localhost:5432/${{ env.POSTGRES_DB }}
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: ci_test_secret_key_not_for_production_use
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 60
+      REFRESH_TOKEN_EXPIRE_DAYS: 7
+      CORS_ORIGINS: http://localhost:5173
+      APP_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run DB migrations
+        run: alembic upgrade head
+
+      - name: Run tests with coverage
+        run: |
+          pip install pytest-cov
+          pytest tests/ \
+            --cov=app \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=70 \
+            -v
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: backend/coverage.xml
+
+  # ──────────────────────────────────────────────
+  # 維度：品質 — 前端 Lint + 型別 + Build
+  # ──────────────────────────────────────────────
+  frontend-lint-build:
+    name: "Frontend Lint & Build"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
+
+      - name: Build (production)
+        run: npm run build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
+  # ──────────────────────────────────────────────
+  # 維度：資安 — SAST（Semgrep OWASP Top 10）
+  # Critical/High → blocks build
+  # ──────────────────────────────────────────────
+  sast:
+    name: "SAST — Semgrep"
+    runs-on: ubuntu-latest
+    needs: [backend-lint, frontend-lint-build]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep (Python backend)
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/owasp-top-ten
+            p/python
+            p/jwt
+            p/secrets
+          # SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}  # 若有 Semgrep Cloud
+
+      - name: Run Semgrep (TypeScript frontend)
+        run: |
+          pip install semgrep
+          semgrep \
+            --config=p/typescript \
+            --config=p/react \
+            --error \
+            --severity=ERROR \
+            frontend/src/
+
+  # ──────────────────────────────────────────────
+  # 維度：資安 — Secret Scan（Gitleaks）
+  # 任何硬編碼密鑰 → blocks build
+  # ──────────────────────────────────────────────
+  secret-scan:
+    name: "Secret Scan — Gitleaks"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ──────────────────────────────────────────────
+  # 維度：資安 — SCA（pip-audit + npm audit）
+  # Critical CVE → blocks build
+  # ──────────────────────────────────────────────
+  sca:
+    name: "SCA — Dependency Audit"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Python SCA — osv-scanner (requirements.txt only, no build-tool CVE)
+        uses: google/osv-scanner-action@v1
+        with:
+          scan-args: |-
+            --lockfile=requirements.txt:backend/requirements.txt
+            --format=table
+
+      - name: Node SCA — npm audit
+        working-directory: frontend
+        run: |
+          npm ci
+          # --audit-level=critical：只有 critical 才 fail
+          npm audit --audit-level=critical
+
+  # ──────────────────────────────────────────────
+  # G5 通過 — 產出 Docker image artifact
+  # 所有 gate 全綠才執行
+  # ──────────────────────────────────────────────
+  build-image:
+    name: "Build Docker Images (G5 artifact)"
+    runs-on: ubuntu-latest
+    needs: [backend-test, sast, secret-scan, sca]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: false
+          tags: workflow-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/workflow-backend.tar
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          target: builder
+          push: false
+          tags: workflow-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Upload backend image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-backend-image
+          path: /tmp/workflow-backend.tar
+          retention-days: 1
+
+  # ──────────────────────────────────────────────
+  # CI 失敗通知（任一 gate 失敗時）
+  # ──────────────────────────────────────────────
+  notify-failure:
+    name: "Notify CI Failure"
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-lint-build, sast, secret-scan, sca]
+    if: failure()
+
+    steps:
+      - name: Report failure
+        run: |
+          echo "::error::CI 失敗，依根因退回對應角色："
+          echo "::error::  - Build/測試失敗 → DevSecOps Dev"
+          echo "::error::  - SAST/Secret Scan → DevSecOps Sec"
+          echo "::error::  - SCA CVE → DevSecOps Sec（升版套件）"
+          echo "::error::  - 覆蓋率未達 → QA"
+          echo "::error::詳見 待修改.md 退回規則"
