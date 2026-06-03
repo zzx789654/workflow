@@ -17,6 +17,8 @@ class TaskCreate(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     assignee_ids: list[uuid.UUID] = []
+    recurrence_rule: str | None = None
+    recurrence_end_date: date | None = None
 
 
 class TaskUpdate(BaseModel):
@@ -32,6 +34,8 @@ class TaskUpdate(BaseModel):
     progress: int | None = Field(None, ge=0, le=100)
     position: int | None = None
     assignee_ids: list[uuid.UUID] | None = None
+    recurrence_rule: str | None = None
+    recurrence_end_date: date | None = None
 
 
 class TaskCommentCreate(BaseModel):
@@ -66,6 +70,8 @@ class TaskOut(BaseModel):
     updated_at: datetime
     assignees: list[UserOut] = []
     comments: list[TaskCommentOut] = []
+    recurrence_rule: str | None = None
+    recurrence_end_date: date | None = None
 
     model_config = {"from_attributes": True}
 

@@ -8,6 +8,10 @@ import ProjectPage from './pages/ProjectPage'
 import DailyTaskPage from './pages/DailyTaskPage'
 import TemplatesPage from './pages/TemplatesPage'
 import CalendarPage from './pages/CalendarPage'
+import WorkloadPage from './pages/WorkloadPage'
+import WeeklyReportPage from './pages/WeeklyReportPage'
+import InsightsPage from './pages/InsightsPage'
+import PublicSharePage from './pages/PublicSharePage'
 import Layout from './components/ui/Layout'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -29,6 +33,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/share/:token" element={<PublicSharePage />} />
       <Route
         path="/*"
         element={
@@ -40,6 +45,9 @@ export default function App() {
                 <Route path="/daily" element={<DailyTaskPage />} />
                 <Route path="/templates" element={<TemplatesPage />} />
                 <Route path="/calendar" element={<CalendarPage />} />
+                <Route path="/workload" element={<WorkloadPage />} />
+                <Route path="/reports" element={<WeeklyReportPage />} />
+                <Route path="/insights" element={<InsightsPage />} />
               </Routes>
             </Layout>
           </RequireAuth>

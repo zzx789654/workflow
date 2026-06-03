@@ -1,19 +1,30 @@
+import { useState, useEffect } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
 import SearchBar from './SearchBar'
 import NotificationBell from './NotificationBell'
+import AnnouncementBanner from './AnnouncementBanner'
 
 const navItems = [
   { to: '/', label: '專案總覽', icon: '📁', end: true },
   { to: '/daily', label: '日常作業', icon: '📋', end: false },
   { to: '/templates', label: '專案範本', icon: '🗂️', end: false },
   { to: '/calendar', label: '月曆', icon: '📅', end: false },
+  { to: '/workload', label: '工作量', icon: '📊', end: false },
+  { to: '/reports', label: '週報', icon: '📝', end: false },
+  { to: '/insights', label: '效率分析', icon: '💡', end: false },
 ]
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const navigate = useNavigate()
+  const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark')
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark)
+    localStorage.setItem('theme', dark ? 'dark' : 'light')
+  }, [dark])
 
   const handleLogout = () => {
     logout()
@@ -28,7 +39,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     }`
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex dark:bg-gray-900">
+      <AnnouncementBanner />
       {/* 側邊欄 */}
       <aside className="w-52 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col">
         <div className="px-4 py-4 border-b border-gray-100">
@@ -63,9 +75,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* 主內容 */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="bg-white border-b border-gray-200 px-6 py-2.5 flex items-center justify-end gap-3">
+        <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-2.5 flex items-center justify-end gap-3">
           <SearchBar />
           <NotificationBell />
+          <button
+            onClick={() => setDark((d) => !d)}
+            className="text-gray-400 hover:text-gray-600 text-lg"
+            title={dark ? '切換淺色模式' : '切換暗色模式'}
+          >
+            {dark ? '☀️' : '🌙'}
+          </button>
         </header>
         <main className="flex-1 p-6 bg-gray-50 overflow-y-auto">
           {children}

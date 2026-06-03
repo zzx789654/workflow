@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { projectsApi } from '../api/projects'
 import { dashboardApi, type DashboardSummary } from '../api/dashboard'
 import type { Project } from '../types'
+import AISuggestCard from '../components/dashboard/AISuggestCard'
+import HealthScoreBadge from '../components/dashboard/HealthScoreBadge'
 
 const PRIORITY_COLOR: Record<string, string> = {
   urgent: 'bg-red-100 text-red-700',
@@ -104,12 +106,15 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* 7 天完成趨勢 */}
         <div className="card">
           <h2 className="text-sm font-semibold text-gray-700 mb-4">過去 7 天完成趨勢</h2>
           <TrendBar trend={trend} />
         </div>
+
+        {/* AI 優先度建議 */}
+        <AISuggestCard />
 
         {/* 需我處理 */}
         <div className="card">
@@ -171,9 +176,10 @@ export default function DashboardPage() {
               <Link key={p.id} to={`/projects/${p.id}`} className="card hover:shadow-md transition-shadow group">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />
-                  <h3 className="font-semibold text-gray-900 group-hover:text-primary-600 transition-colors truncate">
+                  <h3 className="font-semibold text-gray-900 group-hover:text-primary-600 transition-colors truncate flex-1">
                     {p.name}
                   </h3>
+                  <HealthScoreBadge projectId={p.id} />
                 </div>
                 {p.description && (
                   <p className="text-sm text-gray-500 mb-3 line-clamp-2">{p.description}</p>

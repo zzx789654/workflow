@@ -12,6 +12,11 @@ import CreateTaskModal from '../components/project/CreateTaskModal'
 import MilestonesTab from '../components/project/MilestonesTab'
 import MembersTab from '../components/project/MembersTab'
 import GanttTab from '../components/project/GanttTab'
+import ListView from '../components/project/ListView'
+import TableView from '../components/project/TableView'
+import BulkActionBar from '../components/project/BulkActionBar'
+
+type ViewMode = 'kanban' | 'list' | 'table'
 
 export default function ProjectPage() {
   const { projectId = '' } = useParams()
@@ -21,6 +26,8 @@ export default function ProjectPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [savingTemplate, setSavingTemplate] = useState(false)
   const [filter, setFilter] = useState<KanbanFilter>({ assigneeId: '', priority: '', status: '', keyword: '' })
+  const [viewMode, setViewMode] = useState<ViewMode>('kanban')
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const tasks = useTaskStore((s) => s.tasks)
   useProjectWs(projectId)
@@ -61,6 +68,22 @@ export default function ProjectPage() {
           {project.description && <span className="text-sm text-gray-500 truncate">{project.description}</span>}
         </div>
         <button
+          onClick={() => {
+            const header = '任務名稱,狀態,優先度,截止日,指派人\n'
+            const rows = tasks.map((t) =>
+              [t.title, t.status, t.priority, t.due_date ?? '', t.assignees.map((u) => u.display_name).join(';')].join(',')
+            ).join('\n')
+            const blob = new Blob(['﻿' + header + rows], { type: 'text/csv;charset=utf-8' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url; a.download = `${project?.name ?? 'tasks'}.csv`; a.click()
+            URL.revokeObjectURL(url)
+          }}
+          className="btn-secondary text-sm flex-shrink-0"
+        >
+          📥 匯出 CSV
+        </button>
+        <button
           onClick={handleSaveAsTemplate}
           disabled={savingTemplate}
           className="btn-secondary text-sm flex-shrink-0"
@@ -88,9 +111,60 @@ export default function ProjectPage() {
                   filter={filter}
                   onChange={setFilter}
                 />
-                <button onClick={() => setShowCreate(true)} className="btn-primary flex-shrink-0">+ 新增任務</button>
+                <div className="flex items-center gap-2">
+                  {/* 視圖切換 */}
+                  <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+                    {(['kanban', 'list', 'table'] as ViewMode[]).map((v) => (
+                      <button
+                        key={v}
+                        onClick={() => setViewMode(v)}
+                        className={`px-3 py-1.5 transition-colors ${viewMode === v ? 'bg-primary-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        {v === 'kanban' ? '看板' : v === 'list' ? '列表' : '表格'}
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={() => setShowCreate(true)} className="btn-primary flex-shrink-0">+ 新增任務</button>
+                </div>
               </div>
-              <KanbanBoard projectId={projectId} onTaskClick={setSelectedTask} filterFn={(t) => applyKanbanFilter([t], filter).length > 0} />
+
+              {viewMode === 'kanban' && (
+                <KanbanBoard projectId={projectId} onTaskClick={setSelectedTask} filterFn={(t) => applyKanbanFilter([t], filter).length > 0} />
+              )}
+              {viewMode === 'list' && (
+                <div>
+                  {/* 全選 checkbox */}
+                  <div className="flex items-center gap-2 mb-2 px-1">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.length === tasks.length && tasks.length > 0}
+                      onChange={(e) => setSelectedIds(e.target.checked ? tasks.map((t) => t.id) : [])}
+                      className="rounded"
+                    />
+                    <span className="text-xs text-gray-500">全選</span>
+                  </div>
+                  <div className="space-y-0">
+                    {applyKanbanFilter(tasks, filter).map((t) => (
+                      <div key={t.id} className="flex items-center gap-2 py-1 px-1">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(t.id)}
+                          onChange={(e) => setSelectedIds((ids) => e.target.checked ? [...ids, t.id] : ids.filter((id) => id !== t.id))}
+                          className="rounded flex-shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <div className="flex-1" onClick={() => setSelectedTask(t)}>
+                          <ListView tasks={[t]} onTaskClick={setSelectedTask} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <BulkActionBar selectedIds={selectedIds} projectId={projectId} onDone={() => { setSelectedIds([]); fetchTasks(projectId) }} />
+                </div>
+              )}
+              {viewMode === 'table' && (
+                <TableView tasks={applyKanbanFilter(tasks, filter)} projectId={projectId} onUpdate={() => fetchTasks(projectId)} />
+              )}
             </div>
           }
         />

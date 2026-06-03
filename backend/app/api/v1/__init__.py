@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     ai_suggest,
     announcements,
+    attachments,
     auth,
     bulk_actions,
     calendar,
@@ -24,6 +25,7 @@ from app.api.v1.endpoints import (
     templates,
     time_logs,
     users,
+    webhooks,
     weekly_reports,
     workload,
 )
@@ -55,3 +57,6 @@ router.include_router(public_share.router)
 router.include_router(insights.router)
 router.include_router(health_score.router)
 router.include_router(ai_suggest.router)
+router.include_router(attachments.router)
+router.include_router(attachments.file_router)
+router.include_router(webhooks.router)
