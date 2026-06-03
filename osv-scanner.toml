@@ -1,3 +1,7 @@
+[[IgnoredVulns]]
+id = "GHSA-6w46-j5rx-g56g"
+reason = "pytest 9.0.3 fix is blocked by pytest-asyncio requiring pytest<9; upgrade tracked as follow-up when compatible pytest-asyncio is available"
+
 [[PackageOverrides]]
 name = "starlette"
 version = "0.41.3"
