@@ -1,0 +1,15 @@
+{
+  "_comment": "加入 ~/.continue/config.json 的 'mcpServers' 陣列",
+  "mcpServers": [
+    {
+      "name": "workflow",
+      "command": "python",
+      "args": ["c:/GIT/WF/workflow/mcp_server.py"],
+      "env": {
+        "WORKFLOW_URL":      "http://localhost:8000",
+        "WORKFLOW_EMAIL":    "admin@example.com",
+        "WORKFLOW_PASSWORD": "Admin1234!"
+      }
+    }
+  ]
+}

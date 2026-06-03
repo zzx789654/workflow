@@ -34,4 +34,17 @@ export const dailyTasksApi = {
   }>) => api.patch<DailyTask>(`/daily-tasks/${id}`, data),
 
   delete: (id: string) => api.delete(`/daily-tasks/${id}`),
+
+  downloadTemplate: () =>
+    api.get('/daily-tasks/import/template', { responseType: 'blob' }),
+
+  importExcel: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<{ created: number; errors: string[]; total_rows: number }>(
+      '/daily-tasks/import/excel',
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    )
+  },
 }

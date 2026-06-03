@@ -12,6 +12,7 @@ import CreateTaskModal from '../components/project/CreateTaskModal'
 import MilestonesTab from '../components/project/MilestonesTab'
 import MembersTab from '../components/project/MembersTab'
 import GanttTab from '../components/project/GanttTab'
+import ProjectSettingsTab from '../components/project/ProjectSettingsTab'
 
 export default function ProjectPage() {
   const { projectId = '' } = useParams()
@@ -74,6 +75,7 @@ export default function ProjectPage() {
         <NavLink to="gantt" className={navClass}>甘特圖</NavLink>
         <NavLink to="milestones" className={navClass}>里程碑</NavLink>
         <NavLink to="members" className={navClass}>成員</NavLink>
+        <NavLink to="settings" className={navClass}>設定</NavLink>
       </nav>
 
       <Routes>
@@ -97,6 +99,7 @@ export default function ProjectPage() {
         <Route path="/gantt" element={<GanttTab projectId={projectId} />} />
         <Route path="/milestones" element={<MilestonesTab projectId={projectId} />} />
         <Route path="/members" element={<MembersTab projectId={projectId} />} />
+        <Route path="/settings" element={<ProjectSettingsTab projectId={projectId} />} />
       </Routes>
 
       {selectedTask && (

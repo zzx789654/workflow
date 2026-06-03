@@ -8,6 +8,7 @@ import ProjectPage from './pages/ProjectPage'
 import DailyTaskPage from './pages/DailyTaskPage'
 import TemplatesPage from './pages/TemplatesPage'
 import CalendarPage from './pages/CalendarPage'
+import SettingsPage from './pages/SettingsPage'
 import Layout from './components/ui/Layout'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -40,6 +41,7 @@ export default function App() {
                 <Route path="/daily" element={<DailyTaskPage />} />
                 <Route path="/templates" element={<TemplatesPage />} />
                 <Route path="/calendar" element={<CalendarPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
               </Routes>
             </Layout>
           </RequireAuth>

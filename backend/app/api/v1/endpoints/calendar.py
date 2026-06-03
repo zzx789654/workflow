@@ -44,33 +44,48 @@ async def get_calendar_events(
     end = date(year, month, last_day)
     events: list[CalendarEvent] = []
 
-    # Project tasks (only from projects user is member of)
+    # Project tasks：顯示有 due_date 或 start_date / end_date 落在本月的任務
+    from sqlalchemy import or_
+    from sqlalchemy.orm import selectinload
+    from app.models.project import Project
     subq = select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id)
     task_q = (
         select(Task)
+        .options(selectinload(Task.project))
         .where(
             Task.project_id.in_(subq),
-            Task.due_date >= start,
-            Task.due_date <= end,
+            or_(
+                Task.due_date.between(start, end),
+                Task.start_date.between(start, end),
+                Task.end_date.between(start, end),
+            ),
         )
-        .order_by(Task.due_date)
+        .order_by(Task.due_date.asc().nulls_last(), Task.start_date.asc().nulls_last())
     )
+    seen_task_ids: set[str] = set()
     task_result = await db.execute(task_q)
     for task in task_result.scalars().all():
-        if task.due_date:
-            events.append(
-                CalendarEvent(
-                    id=str(task.id),
-                    title=task.title,
-                    date=task.due_date,
-                    type="task",
-                    status=task.status.value,
-                    priority=task.priority.value,
-                    progress=task.progress,
-                    project_id=str(task.project_id),
-                    labels=[],
-                )
+        if str(task.id) in seen_task_ids:
+            continue
+        seen_task_ids.add(str(task.id))
+        # 優先用 due_date，其次 start_date，最後 end_date 作為顯示日期
+        display_date = task.due_date or task.start_date or task.end_date
+        if not display_date:
+            continue
+        events.append(
+            CalendarEvent(
+                id=str(task.id),
+                title=task.title,
+                date=display_date,
+                type="task",
+                status=task.status.value,
+                priority=task.priority.value,
+                progress=task.progress,
+                project_id=str(task.project_id),
+                project_name=task.project.name if task.project else None,
+                labels=[],
             )
+        )
 
     # Daily tasks
     daily_q = (

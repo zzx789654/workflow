@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
 from app.core.security import create_access_token, create_refresh_token, decode_token, hash_password, verify_password
 from app.db.session import get_db
 from app.models.user import User
@@ -36,6 +38,24 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         access_token=create_access_token(str(user.id)),
         refresh_token=create_refresh_token(str(user.id)),
     )
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+@router.post("/change-password", status_code=200)
+async def change_password(
+    body: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not verify_password(body.old_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="目前密碼不正確")
+    current_user.hashed_password = hash_password(body.new_password)
+    await db.commit()
+    return {"ok": True}
 
 
 @router.post("/refresh", response_model=Token)

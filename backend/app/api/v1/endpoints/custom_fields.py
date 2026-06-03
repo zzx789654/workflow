@@ -6,9 +6,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_project_membership
 from app.db.session import get_db
-from app.models.project import ProjectMember, ProjectRole
+from app.models.project import ProjectRole
 from app.models.user import User
 from app.models.v3_models import ProjectField, TaskFieldValue
 
@@ -19,27 +19,11 @@ _MAX_FIELDS = 10
 
 
 async def _require_manager(project_id: uuid.UUID, user: User, db: AsyncSession):
-    if user.role.value == "admin":
-        return
-    result = await db.execute(
-        select(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.user_id == user.id)
-    )
-    membership = result.scalar_one_or_none()
-    if not membership:
-        raise HTTPException(status_code=403, detail="Not a project member")
-    role_order = [ProjectRole.viewer, ProjectRole.member, ProjectRole.manager, ProjectRole.owner]
-    if role_order.index(membership.role) < role_order.index(ProjectRole.manager):
-        raise HTTPException(status_code=403, detail="Manager role required")
+    await require_project_membership(project_id, user, db, min_role=ProjectRole.manager)
 
 
 async def _check_member(project_id: uuid.UUID, user: User, db: AsyncSession):
-    if user.role.value == "admin":
-        return
-    result = await db.execute(
-        select(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.user_id == user.id)
-    )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=403, detail="Not a project member")
+    await require_project_membership(project_id, user, db, min_role=ProjectRole.viewer)
 
 
 class FieldCreate(BaseModel):

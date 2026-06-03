@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint  # noqa: F401
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -72,6 +72,25 @@ class TaskFieldValue(Base):
 
     task: Mapped["Task"] = relationship(back_populates="field_values")  # type: ignore[name-defined]
     field: Mapped["ProjectField"] = relationship(back_populates="values")
+
+
+class MilestoneLog(Base):
+    __tablename__ = "milestone_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
+    task_title: Mapped[str] = mapped_column(String(500), nullable=False)
+    completed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    completed_by_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    work_minutes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    project: Mapped["Project"] = relationship()  # type: ignore[name-defined]
+    completer: Mapped["User | None"] = relationship(foreign_keys=[completed_by])  # type: ignore[name-defined]
 
 
 class TaskDependency(Base):

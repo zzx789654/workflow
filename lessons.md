@@ -1,3 +1,66 @@
+## [2026-06-03] PM UX 加速改善 — 4 項 UX 改動上線
+
+- UX-01：KanbanColumn 底部快速輸入框（Enter 連續建立，Esc 取消）
+- UX-02：TaskDetailPanel 複製任務按鈕（複製標題/優先度/指派人/日期，狀態重設為 todo）
+- UX-03：TaskCard 截止日顏色警示（逾期紅底、今日橘底、明日黃底，date-fns differenceInCalendarDays）
+- UX-04：DailyTaskModal 連續輸入模式 checkbox（送出後清空標題、計數、保持 modal 開啟）
+
+### 教訓 / 準則
+
+**教訓 31：modal onSave 需支援 keepOpen 參數以應對連續輸入場景**
+- 情境：連續新增時父元件的 onSave 預設會關閉 modal，需要區分「完成」和「繼續」
+- 準則：onSave 加 optional `keepOpen?: boolean` 參數；父元件依此決定是否關閉
+
+**教訓 32：Kanban 快速新增輸入框 onBlur 要判斷內容是否為空再關閉**
+- 情境：onBlur 直接關閉 input 會讓點擊「新增」按鈕時先觸發 blur 導致框消失
+- 準則：onBlur 只在 `!quickTitle.trim()` 時才收起，有內容時保持開啟讓使用者操作按鈕
+
+---
+
+## [2026-06-03] 輪結 Round 6 — G6 Docker CD 測試通過（20/20）
+
+- 現況：G1✅ G2✅ G3✅ G4✅ G5✅ G6✅ — **全部關卡通過，V3 P1 正式上線**
+- CI（G5）：GitHub Actions 已於先前 commit 修復（b925e7e）
+- CD（G6）：本機 Docker Compose Staging E2E 20/20 Pass（2026-06-03）
+- 修復：`schemas/daily_task.py` 欄位名 `date` 遮蔽 `datetime.date` 型別（改用 `_dt.date` alias）
+- 退回事件：無（一輪修復後直接通過）
+
+### 教訓 / 準則
+
+**教訓 29：Pydantic v2 欄位名稱不可與型別名稱相同**
+- 情境：`date: date | None` 在類別主體中，欄位名 `date` 遮蔽了 `datetime.date`，Pydantic eval 時得到 `NoneType | NoneType`
+- 準則：欄位名稱與型別名稱衝突時，改用 `import datetime as _dt` 再寫 `_dt.date`，或將欄位名改為 `task_date` 等不衝突的名稱；`from __future__ import annotations` 無法解決 Pydantic v2 的 eval 問題
+
+**教訓 30：Windows Docker E2E 腳本用 `python` 而非 `python3`**
+- 情境：Windows 上 Git Bash 的 `python3` 指向 Microsoft Store stub，導致 JSON parse 全部靜默失敗
+- 準則：跨平台 E2E 腳本中，用 `PY=python` 變數包裝，或在腳本頂部 `PY=$(which python3 2>/dev/null || which python)`
+
+---
+
+## [2026-06-03] 輪結 Round 5 — V3 P1 F05/F06 前端補完
+
+- 現況：G1✅ G2✅ G3✅ G4✅；G5/G6 待 Docker 環境執行
+- DevSecOps：前端補完 F05（自訂欄位）+ F06（任務依賴）UI，後端 API 不變
+- 新增檔案：api/customFields.ts、api/dependencies.ts、components/project/ProjectSettingsTab.tsx
+- 修改檔案：TaskDetailPanel、GanttTab、KanbanBoard、KanbanColumn、TaskCard、ProjectPage、types/index.ts
+- 退回事件：無
+
+### 教訓 / 準則
+
+**教訓 26：甘特圖 SVG 箭頭需用絕對定位疊加層**
+- 情境：甘特圖依賴箭頭需跨列連線，無法在個別列的 DOM 裡畫出來
+- 準則：用 `position: absolute` 的 SVG 疊加在整個甘特圖容器上，用 `pointer-events: none` 避免干擾互動；座標用 `barInfo` 字典預先計算各任務橫條的 x/y
+
+**教訓 27：KanbanBoard deps 載入用 tasks.length 當 effect 依賴**
+- 情境：deps 需要在任務列表更新後重新計算，但直接用 `tasks` 陣列作 effect 依賴會造成無限迴圈
+- 準則：effect 依賴用 `tasks.length`（或穩定的 projectId），deps 計算用 `tasks` 快照
+
+**教訓 28：自訂欄位 Manager 權限在後端強制，前端 UI 不需重複 role check**
+- 情境：ProjectSettingsTab 試圖在前端判斷 ProjectRole，但前端沒有 ProjectMember 資訊
+- 準則：前端只需顯示 UI；後端 `_require_manager` 會擋住非 Manager 的請求並回傳 403，前端捕捉錯誤顯示即可
+
+---
+
 ## [2026-06-02] 輪結 Round 4 — V3 P1 實作完成（G1～G4）
 
 - 現況：G1✅ G2✅ G3✅ G4✅；下一步 = G5 CI 綠燈（需 Docker/CI 環境）

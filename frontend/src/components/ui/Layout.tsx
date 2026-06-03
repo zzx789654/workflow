@@ -10,6 +10,10 @@ const navItems = [
   { to: '/calendar', label: '月曆', icon: '📅', end: false },
 ]
 
+const bottomNavItems = [
+  { to: '/settings', label: '設定', icon: '⚙️', end: false },
+]
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
@@ -44,6 +48,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </NavLink>
           ))}
         </nav>
+
+        <div className="px-3 pb-2 space-y-1">
+          {bottomNavItems.map(item => (
+            <NavLink key={item.to} to={item.to} end={item.end} className={navClass}>
+              <span>{item.icon}</span>
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </div>
 
         <div className="px-4 py-3 border-t border-gray-100">
           <div className="flex items-center gap-2 mb-2">

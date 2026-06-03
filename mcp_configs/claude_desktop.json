@@ -1,0 +1,14 @@
+{
+  "_comment": "複製此內容合併到 %APPDATA%\\Claude\\claude_desktop_config.json（Windows）或 ~/Library/Application Support/Claude/claude_desktop_config.json（Mac）",
+  "mcpServers": {
+    "workflow": {
+      "command": "python",
+      "args": ["c:/GIT/WF/workflow/mcp_server.py"],
+      "env": {
+        "WORKFLOW_URL":      "http://localhost:8000",
+        "WORKFLOW_EMAIL":    "admin@example.com",
+        "WORKFLOW_PASSWORD": "Admin1234!"
+      }
+    }
+  }
+}

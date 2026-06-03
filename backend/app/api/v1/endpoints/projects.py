@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_project_membership
 from app.db.session import get_db
 from app.models.project import Project, ProjectMember, ProjectRole
 from app.models.user import User
@@ -72,7 +72,7 @@ async def list_projects(db: AsyncSession = Depends(get_db), current_user: User =
 async def get_project(
     project_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
-    await require_project_role(project_id, current_user, db)
+    await require_project_membership(project_id, current_user, db)
     project = await get_project_or_404(project_id, db)
     count_result = await db.execute(select(func.count()).where(ProjectMember.project_id == project_id))
     return ProjectOut(**project.__dict__, member_count=count_result.scalar())
@@ -85,7 +85,7 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await require_project_role(project_id, current_user, db, ProjectRole.manager)
+    await require_project_membership(project_id, current_user, db, ProjectRole.manager)
     project = await get_project_or_404(project_id, db)
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(project, field, value)
@@ -99,7 +99,7 @@ async def update_project(
 async def delete_project(
     project_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
-    await require_project_role(project_id, current_user, db, ProjectRole.owner)
+    await require_project_membership(project_id, current_user, db, ProjectRole.owner)
     project = await get_project_or_404(project_id, db)
     await db.delete(project)
     await db.commit()
@@ -109,7 +109,7 @@ async def delete_project(
 async def list_members(
     project_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
-    await require_project_role(project_id, current_user, db)
+    await require_project_membership(project_id, current_user, db)
     result = await db.execute(
         select(ProjectMember).options(selectinload(ProjectMember.user)).where(ProjectMember.project_id == project_id)
     )
@@ -123,7 +123,7 @@ async def add_member(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await require_project_role(project_id, current_user, db, ProjectRole.manager)
+    await require_project_membership(project_id, current_user, db, ProjectRole.manager)
     existing = await db.execute(
         select(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.user_id == body.user_id)
     )
@@ -145,7 +145,7 @@ async def remove_member(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await require_project_role(project_id, current_user, db, ProjectRole.manager)
+    await require_project_membership(project_id, current_user, db, ProjectRole.manager)
     result = await db.execute(
         select(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
     )
@@ -156,3 +156,30 @@ async def remove_member(
         raise HTTPException(status_code=400, detail="Cannot remove project owner")
     await db.delete(member)
     await db.commit()
+
+
+@router.patch("/{project_id}/members/{user_id}/role", response_model=ProjectMemberOut)
+async def update_member_role(
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+    role: ProjectRole,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Manager 以上可調整其他成員的專案角色（不能改 owner，不能改自己）。"""
+    await require_project_membership(project_id, current_user, db, ProjectRole.manager)
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="無法修改自己的角色")
+    result = await db.execute(
+        select(ProjectMember).options(selectinload(ProjectMember.user))
+        .where(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
+    )
+    member = result.scalar_one_or_none()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    if member.role == ProjectRole.owner:
+        raise HTTPException(status_code=400, detail="無法修改 Owner 的角色")
+    member.role = role
+    await db.commit()
+    await db.refresh(member)
+    return member

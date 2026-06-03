@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { projectsApi } from '../api/projects'
 import { dashboardApi, type DashboardSummary } from '../api/dashboard'
+import { useAuthStore } from '../stores/authStore'
 import type { Project } from '../types'
 
 const PRIORITY_COLOR: Record<string, string> = {
@@ -44,6 +45,8 @@ export default function DashboardPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
+  const currentUser = useAuthStore(s => s.user)
+  const canCreateProject = currentUser?.role === 'admin' || currentUser?.role === 'member'
 
   const loadAll = async () => {
     setLoading(true)
@@ -143,7 +146,9 @@ export default function DashboardPage() {
       <div>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-gray-900">我的專案</h2>
-          <button onClick={() => setShowCreate(true)} className="btn-primary">+ 新增專案</button>
+          {canCreateProject && (
+            <button onClick={() => setShowCreate(true)} className="btn-primary">+ 新增專案</button>
+          )}
         </div>
 
         {showCreate && (

@@ -106,9 +106,15 @@ export default function CalendarPage() {
                     {dayEvents.slice(0, 3).map(ev => (
                       <div key={ev.id}
                         className={`text-xs px-1 py-0.5 rounded truncate flex items-center gap-1 ${TYPE_COLORS[ev.type]}`}
+                        title={ev.project_name ? `[${ev.project_name}] ${ev.title}` : ev.title}
                       >
                         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${STATUS_DOT[ev.status] ?? 'bg-gray-400'}`} />
-                        <span className="truncate">{ev.title}</span>
+                        <span className="truncate">
+                          {ev.type === 'task' && ev.project_name && (
+                            <span className="opacity-60 mr-0.5">[{ev.project_name}]</span>
+                          )}
+                          {ev.title}
+                        </span>
                       </div>
                     ))}
                     {dayEvents.length > 3 && (
@@ -143,7 +149,7 @@ export default function CalendarPage() {
                       <div className="flex items-center gap-1.5 mb-1">
                         <span className={`w-2 h-2 rounded-full ${STATUS_DOT[ev.status] ?? 'bg-gray-400'}`} />
                         <span className={`text-xs font-medium ${ev.type === 'task' ? 'text-indigo-600' : 'text-emerald-600'}`}>
-                          {ev.type === 'task' ? '任務' : '日常'}
+                          {ev.type === 'task' ? `任務${ev.project_name ? ` · ${ev.project_name}` : ''}` : '日常作業'}
                         </span>
                       </div>
                       <p className="text-sm font-medium text-gray-800">{ev.title}</p>

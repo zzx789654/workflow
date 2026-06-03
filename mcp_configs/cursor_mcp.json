@@ -1,0 +1,14 @@
+{
+  "_comment": "放到 .cursor/mcp.json（專案根目錄）或 ~/.cursor/mcp.json（全域）",
+  "mcpServers": {
+    "workflow": {
+      "command": "python",
+      "args": ["c:/GIT/WF/workflow/mcp_server.py"],
+      "env": {
+        "WORKFLOW_URL":      "http://localhost:8000",
+        "WORKFLOW_EMAIL":    "admin@example.com",
+        "WORKFLOW_PASSWORD": "Admin1234!"
+      }
+    }
+  }
+}

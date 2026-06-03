@@ -1,0 +1,15 @@
+{
+  "_comment": "放到 .vscode/mcp.json（專案）或加入 settings.json 的 'mcp.servers' 區段",
+  "servers": {
+    "workflow": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["c:/GIT/WF/workflow/mcp_server.py"],
+      "env": {
+        "WORKFLOW_URL":      "http://localhost:8000",
+        "WORKFLOW_EMAIL":    "admin@example.com",
+        "WORKFLOW_PASSWORD": "Admin1234!"
+      }
+    }
+  }
+}

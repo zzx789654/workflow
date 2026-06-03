@@ -164,6 +164,39 @@ export interface CalendarEvent {
   labels: string[]
 }
 
+export interface MilestoneLog {
+  id: string
+  project_id: string
+  task_id: string | null
+  task_title: string
+  completed_by: string | null
+  completed_by_name: string | null
+  work_minutes: number
+  note: string | null
+  completed_at: string
+}
+
+export interface ProjectField {
+  id: string
+  project_id: string
+  name: string
+  field_type: 'text' | 'number' | 'date' | 'select'
+  options: { choices?: string[] } | null
+  position: number
+}
+
+export interface FieldValue {
+  field_id: string
+  value: string | null
+}
+
+export interface TaskDependency {
+  id: string
+  from_task_id: string
+  to_task_id: string
+  dep_type: string
+}
+
 export type WsEvent =
   | { type: 'task_created'; task: string }
   | { type: 'task_updated'; task_id: string }

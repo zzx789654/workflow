@@ -5,9 +5,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_project_membership
 from app.db.session import get_db
-from app.models.project import ProjectMember
+from app.models.project import ProjectRole
 from app.models.task import Task
 from app.models.user import User
 from app.models.v3_models import TaskDependency
@@ -16,13 +16,11 @@ router = APIRouter(prefix="/projects/{project_id}/tasks/{task_id}/dependencies",
 
 
 async def _check_member(project_id: uuid.UUID, user: User, db: AsyncSession):
-    if user.role.value == "admin":
-        return
-    result = await db.execute(
-        select(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.user_id == user.id)
-    )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=403, detail="Not a project member")
+    await require_project_membership(project_id, user, db, min_role=ProjectRole.viewer)
+
+
+async def _require_write(project_id: uuid.UUID, user: User, db: AsyncSession):
+    await require_project_membership(project_id, user, db, min_role=ProjectRole.member)
 
 
 class DepCreate(BaseModel):
@@ -76,7 +74,7 @@ async def add_dep(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await _check_member(project_id, current_user, db)
+    await _require_write(project_id, current_user, db)
     if task_id == body.to_task_id:
         raise HTTPException(status_code=400, detail="A task cannot depend on itself")
     # 確認 target task 存在且在同一專案
@@ -105,7 +103,7 @@ async def remove_dep(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await _check_member(project_id, current_user, db)
+    await _require_write(project_id, current_user, db)
     dep = await db.get(TaskDependency, dep_id)
     if not dep or str(dep.from_task_id) != str(task_id):
         raise HTTPException(status_code=404, detail="Dependency not found")

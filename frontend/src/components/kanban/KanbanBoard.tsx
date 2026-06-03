@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   DndContext,
   DragEndEvent,
@@ -11,10 +11,11 @@ import {
   DragOverlay,
 } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import type { Task, TaskStatus } from '../../types'
+import type { Task, TaskDependency, TaskStatus } from '../../types'
 import KanbanColumn from './KanbanColumn'
 import TaskCard from './TaskCard'
 import { useTaskStore } from '../../stores/taskStore'
+import { dependenciesApi } from '../../api/dependencies'
 
 const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
   { id: 'todo', label: '待辦', color: 'bg-gray-100' },
@@ -34,6 +35,29 @@ export default function KanbanBoard({ projectId, onTaskClick, filterFn }: Props)
   const moveTask = useTaskStore((s) => s.moveTask)
   const wsConnected = useTaskStore((s) => s.wsConnected)
   const [activeTask, setActiveTask] = useState<Task | null>(null)
+  const [allDeps, setAllDeps] = useState<TaskDependency[]>([])
+
+  // 載入所有依賴，計算被阻擋的任務
+  useEffect(() => {
+    if (!tasks.length) return
+    Promise.all(
+      tasks.map((t) =>
+        dependenciesApi.list(projectId, t.id)
+          .then((r) => r.data)
+          .catch(() => [] as TaskDependency[])
+      )
+    ).then((results) => setAllDeps(results.flat()))
+  }, [projectId, tasks.length])
+
+  // 有未完成前置任務的 task id 集合
+  const blockedTaskIds = new Set<string>(
+    allDeps
+      .filter((d) => {
+        const fromTask = tasks.find((t) => t.id === d.from_task_id)
+        return fromTask && fromTask.status !== 'done'
+      })
+      .map((d) => d.to_task_id)
+  )
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -85,7 +109,7 @@ export default function KanbanBoard({ projectId, onTaskClick, filterFn }: Props)
           {COLUMNS.map((col) => {
             const colTasks = tasksByStatus(col.id)
             return (
-              <KanbanColumn key={col.id} column={col} tasks={colTasks} onTaskClick={onTaskClick} />
+              <KanbanColumn key={col.id} column={col} tasks={colTasks} onTaskClick={onTaskClick} projectId={projectId} blockedTaskIds={blockedTaskIds} />
             )
           })}
         </div>

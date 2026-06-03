@@ -5,10 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_project_membership
 from app.api.v1.endpoints.notifications import _parse_and_notify
+from app.api.v1.endpoints.milestones import record_task_completion
 from app.db.session import get_db
-from app.models.project import ProjectMember
+from app.models.project import ProjectMember, ProjectRole
 from app.models.task import Task, TaskAssignee, TaskComment
 from app.models.user import User
 from app.schemas.task import KanbanMoveRequest, TaskCommentCreate, TaskCommentOut, TaskCreate, TaskOut, TaskUpdate
@@ -33,13 +34,18 @@ async def _load_task(task_id: uuid.UUID, db: AsyncSession) -> Task:
 
 
 async def _check_member(project_id: uuid.UUID, user: User, db: AsyncSession):
-    if user.role.value == "admin":
-        return
-    result = await db.execute(
-        select(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.user_id == user.id)
-    )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=403, detail="Not a project member")
+    """任意成員（含 viewer）可讀取。"""
+    await require_project_membership(project_id, user, db, min_role=ProjectRole.viewer)
+
+
+async def _require_write_access(project_id: uuid.UUID, user: User, db: AsyncSession):
+    """member 以上才能新增/修改任務。"""
+    await require_project_membership(project_id, user, db, min_role=ProjectRole.member)
+
+
+async def _require_manager_access(project_id: uuid.UUID, user: User, db: AsyncSession):
+    """manager 以上才能刪除任務、管理自訂欄位。"""
+    await require_project_membership(project_id, user, db, min_role=ProjectRole.manager)
 
 
 @router.get("/", response_model=list[TaskOut])
@@ -66,7 +72,7 @@ async def create_task(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await _check_member(project_id, current_user, db)
+    await _require_write_access(project_id, current_user, db)
     task_data = body.model_dump(exclude={"assignee_ids"})
     task = Task(project_id=project_id, **task_data)
     db.add(task)
@@ -98,8 +104,9 @@ async def update_task(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await _check_member(project_id, current_user, db)
+    await _require_write_access(project_id, current_user, db)
     task = await _load_task(task_id, db)
+    was_done = task.status.value == "done"
     update_data = body.model_dump(exclude_none=True, exclude={"assignee_ids"})
     for field, value in update_data.items():
         setattr(task, field, value)
@@ -110,7 +117,20 @@ async def update_task(
         await db.flush()
         for uid in body.assignee_ids:
             db.add(TaskAssignee(task_id=task_id, user_id=uid))
+    # 任務首次變為 done 時自動建立里程碑記錄
+    now_done = getattr(task, "status", None)
+    now_done_val = now_done.value if hasattr(now_done, "value") else str(now_done)
+    if not was_done and now_done_val == "done":
+        await record_task_completion(
+            task_id=task_id,
+            task_title=task.title,
+            project_id=project_id,
+            completed_by=current_user.id,
+            completed_by_name=current_user.display_name,
+            db=db,
+        )
     await db.commit()
+    db.expire_all()  # 強制 SQLAlchemy 重新從 DB 載入，避免 identity map 快取舊 assignees
     loaded = await _load_task(task_id, db)
     await manager.broadcast(str(project_id), {"type": "task_updated", "task_id": str(task_id)})
     return loaded
@@ -124,10 +144,20 @@ async def move_task(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await _check_member(project_id, current_user, db)
+    await _require_write_access(project_id, current_user, db)
     task = await _load_task(task_id, db)
+    was_done = task.status.value == "done"
     task.status = body.status
     task.position = body.position
+    if not was_done and body.status == "done":
+        await record_task_completion(
+            task_id=task_id,
+            task_title=task.title,
+            project_id=project_id,
+            completed_by=current_user.id,
+            completed_by_name=current_user.display_name,
+            db=db,
+        )
     await db.commit()
     loaded = await _load_task(task_id, db)
     await manager.broadcast(
@@ -144,7 +174,7 @@ async def delete_task(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await _check_member(project_id, current_user, db)
+    await _require_manager_access(project_id, current_user, db)
     task = await _load_task(task_id, db)
     await db.delete(task)
     await db.commit()

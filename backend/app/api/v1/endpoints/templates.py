@@ -1,7 +1,8 @@
 import uuid
 from datetime import date, timedelta
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,6 +19,7 @@ from app.schemas.template import (
     ProjectTemplateCreate,
     ProjectTemplateOut,
     ProjectTemplateUpdate,
+    TemplateTaskCreate,
 )
 
 router = APIRouter(prefix="/project-templates", tags=["project-templates"])
@@ -89,6 +91,37 @@ async def update_template(
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(tmpl, field, value)
     await db.commit()
+    return await _load_template(template_id, db)
+
+
+@router.put("/{template_id}/tasks", response_model=ProjectTemplateOut)
+async def replace_template_tasks(
+    template_id: uuid.UUID,
+    tasks: Annotated[list[TemplateTaskCreate], Body()],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """完整替換範本的任務清單（先刪全部，再重建）"""
+    tmpl = await _load_template(template_id, db)
+    if tmpl.created_by != current_user.id and current_user.role.value != "admin":
+        raise HTTPException(status_code=403, detail="Not allowed")
+    # 刪除舊任務
+    for old_task in list(tmpl.tasks):
+        await db.delete(old_task)
+    await db.flush()
+    # 重建新任務
+    for i, t in enumerate(tasks):
+        db.add(TemplateTask(
+            template_id=tmpl.id,
+            title=t.title,
+            description=t.description,
+            priority=t.priority,
+            day_offset_start=t.day_offset_start,
+            day_offset_end=t.day_offset_end,
+            position=i,
+        ))
+    await db.commit()
+    db.expire_all()  # 清除 SQLAlchemy identity map，強制重新查詢
     return await _load_template(template_id, db)
 
 

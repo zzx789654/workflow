@@ -1,11 +1,13 @@
 import { api } from './client'
-import type { Milestone, MilestoneStatus } from '../types'
+import type { MilestoneLog } from '../types'
 
 export const milestonesApi = {
-  list: (projectId: string) => api.get<Milestone[]>(`/projects/${projectId}/milestones/`),
-  create: (projectId: string, data: { name: string; description?: string; due_date?: string; status?: MilestoneStatus }) =>
-    api.post<Milestone>(`/projects/${projectId}/milestones/`, data),
-  update: (projectId: string, id: string, data: Partial<Milestone>) =>
-    api.patch<Milestone>(`/projects/${projectId}/milestones/${id}`, data),
-  delete: (projectId: string, id: string) => api.delete(`/projects/${projectId}/milestones/${id}`),
+  list: (projectId: string) =>
+    api.get<MilestoneLog[]>(`/projects/${projectId}/milestones/`),
+
+  update: (projectId: string, logId: string, data: { work_minutes?: number; note?: string }) =>
+    api.patch<MilestoneLog>(`/projects/${projectId}/milestones/${logId}`, data),
+
+  delete: (projectId: string, logId: string) =>
+    api.delete(`/projects/${projectId}/milestones/${logId}`),
 }

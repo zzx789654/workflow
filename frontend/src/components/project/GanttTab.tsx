@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { addDays, differenceInDays, format, startOfDay, parseISO, isValid } from 'date-fns'
 import { tasksApi } from '../../api/tasks'
-import type { Task } from '../../types'
+import { dependenciesApi } from '../../api/dependencies'
+import type { Task, TaskDependency } from '../../types'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: '#94a3b8', medium: '#6366f1', high: '#f97316', urgent: '#ef4444',
@@ -10,7 +11,9 @@ const STATUS_LABELS: Record<string, string> = {
   todo: '待辦', in_progress: '進行中', review: '審查', done: '完成',
 }
 
-const DAY_PX = 24  // 每天寬度（px）
+const DAY_PX = 24
+const ROW_H = 48
+const NAME_W = 224  // 任務名稱欄寬 (px)
 
 function getRange(tasks: Task[]) {
   const dates = tasks.flatMap(t => [
@@ -26,14 +29,34 @@ function getRange(tasks: Task[]) {
   return { start, days }
 }
 
+// 收集一個任務的所有依賴（跨任務）
+async function loadAllDeps(tasks: Task[], projectId: string): Promise<TaskDependency[]> {
+  const all: TaskDependency[] = []
+  await Promise.all(
+    tasks.map((t) =>
+      dependenciesApi.list(projectId, t.id)
+        .then((r) => all.push(...r.data))
+        .catch(() => {})
+    )
+  )
+  return all
+}
+
 interface Props { projectId: string }
 
 export default function GanttTab({ projectId }: Props) {
   const [tasks, setTasks] = useState<Task[]>([])
+  const [deps, setDeps] = useState<TaskDependency[]>([])
   const [loading, setLoading] = useState(true)
+  const svgRef = useRef<SVGSVGElement>(null)
 
   useEffect(() => {
-    tasksApi.list(projectId).then(r => setTasks(r.data)).finally(() => setLoading(false))
+    tasksApi.list(projectId).then(async (r) => {
+      const taskList = r.data
+      setTasks(taskList)
+      const allDeps = await loadAllDeps(taskList, projectId)
+      setDeps(allDeps)
+    }).finally(() => setLoading(false))
   }, [projectId])
 
   const withDates = tasks.filter(t => t.start_date || t.end_date || t.due_date)
@@ -65,14 +88,30 @@ export default function GanttTab({ projectId }: Props) {
     if (cur > addDays(start, days)) break
   }
 
+  // 計算每條任務橫條的 x, y 中心（用於繪製箭頭）
+  const barInfo: Record<string, { x: number; y: number; right: number }> = {}
+  withDates.forEach((task, idx) => {
+    const sDate = task.start_date ? parseISO(task.start_date) : task.due_date ? parseISO(task.due_date) : null
+    const eDate = task.end_date ? parseISO(task.end_date) : task.due_date ? parseISO(task.due_date) : null
+    if (!sDate || !eDate) return
+    const left = differenceInDays(sDate, start) * DAY_PX
+    const width = Math.max((differenceInDays(eDate, sDate) + 1) * DAY_PX, DAY_PX)
+    const y = idx * ROW_H + ROW_H / 2 + 32  // 32 = header height
+    barInfo[task.id] = { x: left, y, right: left + width }
+  })
+
+  // 篩選出 from 和 to 都在 withDates 裡的依賴
+  const visibleDeps = deps.filter(
+    (d) => barInfo[d.from_task_id] && barInfo[d.to_task_id]
+  )
+
   return (
     <div className="overflow-x-auto">
-      <div className="min-w-max">
+      <div className="min-w-max relative">
         {/* 標題列 */}
         <div className="flex border-b border-gray-200">
-          <div className="w-56 flex-shrink-0 text-xs font-medium text-gray-500 px-3 py-2 bg-gray-50">任務</div>
+          <div className="flex-shrink-0 text-xs font-medium text-gray-500 px-3 py-2 bg-gray-50" style={{ width: NAME_W }}>任務</div>
           <div className="relative bg-gray-50" style={{ width: totalW }}>
-            {/* 月份標籤 */}
             {months.map(m => (
               <div key={m.label}
                 className="absolute top-0 border-l border-gray-200 text-xs text-gray-500 px-2 py-2 overflow-hidden whitespace-nowrap"
@@ -83,7 +122,7 @@ export default function GanttTab({ projectId }: Props) {
         </div>
 
         {/* 任務列 */}
-        {withDates.map(task => {
+        {withDates.map((task) => {
           const sDate = task.start_date ? parseISO(task.start_date) : task.due_date ? parseISO(task.due_date) : null
           const eDate = task.end_date ? parseISO(task.end_date) : task.due_date ? parseISO(task.due_date) : null
           if (!sDate || !eDate) return null
@@ -92,20 +131,28 @@ export default function GanttTab({ projectId }: Props) {
           const width = Math.max((differenceInDays(eDate, sDate) + 1) * DAY_PX, DAY_PX)
           const color = PRIORITY_COLORS[task.priority] ?? '#6366f1'
           const done = task.status === 'done'
+          // F06: 判斷是否有未完成的前置任務（被鎖定）
+          const blockedByDep = deps.some(
+            (d) => d.to_task_id === task.id &&
+              tasks.find((t) => t.id === d.from_task_id)?.status !== 'done'
+          )
 
           return (
             <div key={task.id} className="flex border-b border-gray-100 hover:bg-gray-50 group">
               {/* 任務名稱欄 */}
-              <div className="w-56 flex-shrink-0 px-3 py-2 flex items-center gap-2 min-w-0">
+              <div className="flex-shrink-0 px-3 py-2 flex items-center gap-2 min-w-0" style={{ width: NAME_W }}>
                 <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className={`text-sm truncate ${done ? 'line-through text-gray-400' : 'text-gray-800'}`}>{task.title}</p>
-                  <p className="text-xs text-gray-400">{STATUS_LABELS[task.status]}</p>
+                  <p className="text-xs text-gray-400 flex items-center gap-1">
+                    {STATUS_LABELS[task.status]}
+                    {blockedByDep && <span className="text-orange-500" title="有未完成前置任務">🔒</span>}
+                  </p>
                 </div>
               </div>
 
               {/* 時間軸 */}
-              <div className="relative" style={{ width: totalW, height: 48 }}>
+              <div className="relative" style={{ width: totalW, height: ROW_H }}>
                 {/* 今日線 */}
                 {todayOffset >= 0 && todayOffset <= days && (
                   <div className="absolute top-0 bottom-0 border-l-2 border-red-400 border-dashed z-10"
@@ -138,6 +185,45 @@ export default function GanttTab({ projectId }: Props) {
             </div>
           )
         })}
+
+        {/* F06 依賴箭頭 SVG 疊加層 */}
+        {visibleDeps.length > 0 && (
+          <svg
+            ref={svgRef}
+            className="absolute top-0 left-0 pointer-events-none z-20"
+            style={{ width: NAME_W + totalW, height: withDates.length * ROW_H + 32 }}
+          >
+            <defs>
+              <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L6,3 z" fill="#f97316" />
+              </marker>
+            </defs>
+            {visibleDeps.map((dep) => {
+              const from = barInfo[dep.from_task_id]
+              const to = barInfo[dep.to_task_id]
+              if (!from || !to) return null
+              // 從 from 任務橫條右端 → to 任務橫條左端，折線箭頭
+              const x1 = NAME_W + from.right
+              const y1 = from.y
+              const x2 = NAME_W + to.x
+              const y2 = to.y
+              const midX = (x1 + x2) / 2
+              return (
+                <g key={dep.id}>
+                  <path
+                    d={`M${x1},${y1} C${midX},${y1} ${midX},${y2} ${x2},${y2}`}
+                    fill="none"
+                    stroke="#f97316"
+                    strokeWidth="1.5"
+                    strokeDasharray="4 2"
+                    markerEnd="url(#arrow)"
+                    opacity="0.7"
+                  />
+                </g>
+              )
+            })}
+          </svg>
+        )}
       </div>
 
       {/* 圖例 */}
@@ -155,6 +241,13 @@ export default function GanttTab({ projectId }: Props) {
         <span className="flex items-center gap-1">
           <span className="border-l-2 border-red-400 border-dashed h-3 inline-block" />
           今日
+        </span>
+        <span className="flex items-center gap-1">
+          <svg width="24" height="12"><path d="M2,6 C8,6 16,6 22,6" stroke="#f97316" strokeWidth="1.5" strokeDasharray="4 2" fill="none" markerEnd="url(#arrow)" /></svg>
+          任務依賴
+        </span>
+        <span className="flex items-center gap-1">
+          🔒 被阻擋（有未完成前置任務）
         </span>
       </div>
     </div>

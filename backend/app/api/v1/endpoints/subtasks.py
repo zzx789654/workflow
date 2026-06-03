@@ -5,9 +5,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_project_membership
 from app.db.session import get_db
-from app.models.project import ProjectMember
+from app.models.project import ProjectRole
 from app.models.task import Task
 from app.models.user import User
 
@@ -15,13 +15,11 @@ router = APIRouter(prefix="/projects/{project_id}/tasks/{task_id}/subtasks", tag
 
 
 async def _check_member(project_id: uuid.UUID, user: User, db: AsyncSession):
-    if user.role.value == "admin":
-        return
-    result = await db.execute(
-        select(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.user_id == user.id)
-    )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=403, detail="Not a project member")
+    await require_project_membership(project_id, user, db, min_role=ProjectRole.viewer)
+
+
+async def _require_write(project_id: uuid.UUID, user: User, db: AsyncSession):
+    await require_project_membership(project_id, user, db, min_role=ProjectRole.member)
 
 
 class SubTaskCreate(BaseModel):
@@ -74,7 +72,7 @@ async def create_subtask(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await _check_member(project_id, current_user, db)
+    await _require_write(project_id, current_user, db)
     parent = await db.get(Task, task_id)
     if not parent or str(parent.project_id) != str(project_id):
         raise HTTPException(status_code=404, detail="Task not found")
@@ -103,7 +101,7 @@ async def update_subtask(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await _check_member(project_id, current_user, db)
+    await _require_write(project_id, current_user, db)
     subtask = await db.get(Task, subtask_id)
     if not subtask or str(subtask.parent_task_id) != str(task_id):
         raise HTTPException(status_code=404, detail="Subtask not found")
@@ -126,7 +124,7 @@ async def delete_subtask(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await _check_member(project_id, current_user, db)
+    await _require_write(project_id, current_user, db)
     subtask = await db.get(Task, subtask_id)
     if not subtask or str(subtask.parent_task_id) != str(task_id):
         raise HTTPException(status_code=404, detail="Subtask not found")

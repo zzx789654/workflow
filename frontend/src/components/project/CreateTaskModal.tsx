@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTaskStore } from '../../stores/taskStore'
-import type { TaskStatus, TaskPriority } from '../../types'
+import { projectsApi } from '../../api/projects'
+import type { TaskStatus, TaskPriority, User } from '../../types'
 
 interface Props {
   projectId: string
@@ -15,8 +16,19 @@ export default function CreateTaskModal({ projectId, onClose }: Props) {
   const [dueDate, setDueDate] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([])
+  const [members, setMembers] = useState<User[]>([])
   const [loading, setLoading] = useState(false)
   const createTask = useTaskStore((s) => s.createTask)
+
+  useEffect(() => {
+    projectsApi.listMembers(projectId).then(r =>
+      setMembers(r.data.map((m: { user: User }) => m.user))
+    )
+  }, [projectId])
+
+  const toggleAssignee = (id: string) =>
+    setAssigneeIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -31,6 +43,7 @@ export default function CreateTaskModal({ projectId, onClose }: Props) {
         due_date: dueDate || undefined,
         start_date: startDate || undefined,
         end_date: endDate || undefined,
+        assignee_ids: assigneeIds.length > 0 ? assigneeIds : undefined,
       })
       onClose()
     } finally {
@@ -72,6 +85,39 @@ export default function CreateTaskModal({ projectId, onClose }: Props) {
                 </select>
               </div>
             </div>
+
+            {/* 施作人員多選 */}
+            {members.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  施作人員（可多選）{assigneeIds.length > 0 && <span className="ml-1 text-primary-600">已選 {assigneeIds.length} 人</span>}
+                </label>
+                <div className="flex flex-wrap gap-2 p-2 border border-gray-200 rounded-lg max-h-32 overflow-y-auto bg-gray-50">
+                  {members.map(m => {
+                    const selected = assigneeIds.includes(m.id)
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => toggleAssignee(m.id)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm border transition-colors ${
+                          selected
+                            ? 'bg-primary-500 text-white border-primary-500'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-primary-300'
+                        }`}
+                      >
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${selected ? 'bg-white/30' : 'bg-primary-100 text-primary-600'}`}>
+                          {m.display_name.charAt(0).toUpperCase()}
+                        </div>
+                        <span>{m.display_name}</span>
+                        {selected && <span className="text-xs opacity-80">✓</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">開始日期</label>
@@ -83,7 +129,7 @@ export default function CreateTaskModal({ projectId, onClose }: Props) {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">截止日期（Due）</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">截止日期</label>
               <input className="input" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
             </div>
             <div className="flex gap-3 pt-2">

@@ -1,8 +1,10 @@
-import { useEffect, useState, useRef } from 'react'
-import type { Task, SubTask, TimeLog } from '../../types'
+import { useEffect, useState } from 'react'
+import type { Task, SubTask, ProjectField, FieldValue, TaskDependency, User } from '../../types'
 import { tasksApi } from '../../api/tasks'
 import { subtasksApi } from '../../api/subtasks'
-import { timeLogsApi } from '../../api/timeLogs'
+import { customFieldsApi } from '../../api/customFields'
+import { dependenciesApi } from '../../api/dependencies'
+import { projectsApi } from '../../api/projects'
 import { useTaskStore } from '../../stores/taskStore'
 
 interface Props {
@@ -11,45 +13,134 @@ interface Props {
   onClose: () => void
 }
 
-const PRIORITY_LABELS = { low: '低', medium: '中', high: '高', urgent: '緊急' }
-const STATUS_LABELS = { todo: '待辦', in_progress: '進行中', review: '審查中', done: '完成' }
-const STATUS_OPTS = [
-  { value: 'todo', label: '待辦' },
-  { value: 'in_progress', label: '進行中' },
-  { value: 'review', label: '審查中' },
-  { value: 'done', label: '完成' },
-]
+const PRIORITY_LABELS: Record<string, string> = { low: '低', medium: '中', high: '高', urgent: '緊急' }
+const STATUS_LABELS: Record<string, string> = { todo: '待辦', in_progress: '進行中', review: '審查中', done: '完成' }
+
+// 子任務三狀態循環：待開始 → 執行中 → 已完成 → 待開始
+const SUBTASK_STATUSES = ['todo', 'in_progress', 'done'] as const
+const SUBTASK_STATUS_LABELS: Record<string, string> = { todo: '待開始', in_progress: '執行中', done: '已完成' }
+const SUBTASK_STATUS_COLORS: Record<string, string> = {
+  todo: 'bg-gray-100 text-gray-500',
+  in_progress: 'bg-blue-100 text-blue-600',
+  done: 'bg-green-100 text-green-600',
+}
+
+function nextSubtaskStatus(current: string): string {
+  const idx = SUBTASK_STATUSES.indexOf(current as typeof SUBTASK_STATUSES[number])
+  return SUBTASK_STATUSES[(idx + 1) % SUBTASK_STATUSES.length]
+}
 
 export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
-  const [comment, setComment] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+  // 子任務
   const [subtasks, setSubtasks] = useState<SubTask[]>([])
   const [newSubtask, setNewSubtask] = useState('')
-  const [timeLogs, setTimeLogs] = useState<TimeLog[]>([])
-  const [runningLog, setRunningLog] = useState<TimeLog | null>(null)
-  const [elapsed, setElapsed] = useState(0)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [expandedSubtask, setExpandedSubtask] = useState<string | null>(null)
+  const [subtaskWorkHours, setSubtaskWorkHours] = useState<Record<string, string>>({})
+  // 人員
+  const [members, setMembers] = useState<User[]>([])
+  const [editingAssignees, setEditingAssignees] = useState(false)
+  const [selectedAssignees, setSelectedAssignees] = useState<string[]>(task.assignees.map(u => u.id))
+  const [savingAssignees, setSavingAssignees] = useState(false)
+  // 評論
+  const [comment, setComment] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  // F05 自訂欄位
+  const [fields, setFields] = useState<ProjectField[]>([])
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({})
+  const [savingFields, setSavingFields] = useState(false)
+  // F06 依賴
+  const [deps, setDeps] = useState<TaskDependency[]>([])
+  const [allTasks, setAllTasks] = useState<Task[]>([])
+  const [depTargetId, setDepTargetId] = useState('')
+  const [addingDep, setAddingDep] = useState(false)
+  // 日期編輯
+  const [editingDates, setEditingDates] = useState(false)
+  const [draftStart, setDraftStart] = useState(task.start_date ?? '')
+  const [draftEnd,   setDraftEnd]   = useState(task.end_date   ?? '')
+  const [draftDue,   setDraftDue]   = useState(task.due_date   ?? '')
+  const [savingDates, setSavingDates] = useState(false)
+
+  const handleSaveDates = async () => {
+    setSavingDates(true)
+    try {
+      await tasksApi.update(projectId, task.id, {
+        start_date: draftStart || undefined,
+        end_date:   draftEnd   || undefined,
+        due_date:   draftDue   || undefined,
+      })
+      await fetchTasks(projectId)
+      setEditingDates(false)
+    } finally { setSavingDates(false) }
+  }
+
+  // 複製
+  const [copying, setCopying] = useState(false)
+
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
-  const deleteTask = useTaskStore((s) => s.deleteTask)
+  const deleteTask  = useTaskStore((s) => s.deleteTask)
+  const createTask  = useTaskStore((s) => s.createTask)
+  const storeTasks  = useTaskStore((s) => s.tasks)
 
   useEffect(() => {
-    subtasksApi.list(projectId, task.id).then((r) => setSubtasks(r.data))
-    timeLogsApi.list(projectId, task.id).then((r) => {
-      setTimeLogs(r.data)
-      const running = r.data.find((l) => !l.ended_at)
-      setRunningLog(running ?? null)
-    })
+    subtasksApi.list(projectId, task.id).then(r => setSubtasks(r.data))
+    projectsApi.listMembers(projectId).then(r =>
+      setMembers(r.data.map((m: { user: User }) => m.user))
+    )
+    customFieldsApi.listFields(projectId).then(r => {
+      setFields(r.data)
+      return customFieldsApi.getFieldValues(projectId, task.id)
+    }).then(r => {
+      const map: Record<string, string> = {}
+      for (const fv of (r as { data: FieldValue[] }).data) map[fv.field_id] = fv.value ?? ''
+      setFieldValues(map)
+    }).catch(() => {})
+    dependenciesApi.list(projectId, task.id).then(r => setDeps(r.data)).catch(() => {})
+    setAllTasks(storeTasks.filter(t => t.id !== task.id))
+    setSelectedAssignees(task.assignees.map(u => u.id))
   }, [task.id, projectId])
 
-  useEffect(() => {
-    if (!runningLog) { if (timerRef.current) clearInterval(timerRef.current); return }
-    const start = new Date(runningLog.started_at).getTime()
-    timerRef.current = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - start) / 60000))
-    }, 1000)
-    return () => { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [runningLog])
+  // ── 人員 ──────────────────────────────────
+  const toggleAssignee = (id: string) =>
+    setSelectedAssignees(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id])
 
+  const handleSaveAssignees = async () => {
+    setSavingAssignees(true)
+    try {
+      await tasksApi.update(projectId, task.id, { assignee_ids: selectedAssignees })
+      await fetchTasks(projectId)
+      setEditingAssignees(false)
+    } finally { setSavingAssignees(false) }
+  }
+
+  // ── 子任務 ────────────────────────────────
+  const handleAddSubtask = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newSubtask.trim()) return
+    const res = await subtasksApi.create(projectId, task.id, newSubtask.trim())
+    setSubtasks(s => [...s, res.data])
+    setNewSubtask('')
+    fetchTasks(projectId)
+  }
+
+  const handleSubtaskStatusCycle = async (st: SubTask) => {
+    const next = nextSubtaskStatus(st.status)
+    const res = await subtasksApi.update(projectId, task.id, st.id, { status: next })
+    setSubtasks(s => s.map(x => x.id === st.id ? res.data : x))
+    fetchTasks(projectId)
+  }
+
+  const handleSubtaskProgress = async (st: SubTask, progress: number) => {
+    const res = await subtasksApi.update(projectId, task.id, st.id, { progress })
+    setSubtasks(s => s.map(x => x.id === st.id ? res.data : x))
+  }
+
+  const handleSubtaskDelete = async (st: SubTask) => {
+    await subtasksApi.delete(projectId, task.id, st.id)
+    setSubtasks(s => s.filter(x => x.id !== st.id))
+    fetchTasks(projectId)
+  }
+
+  // ── 評論 ──────────────────────────────────
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!comment.trim()) return
@@ -57,8 +148,55 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
     try {
       await tasksApi.addComment(projectId, task.id, comment)
       setComment('')
-      await fetchTasks(projectId)
+      fetchTasks(projectId)
     } finally { setSubmitting(false) }
+  }
+
+  // ── F05 自訂欄位 ─────────────────────────
+  const handleSaveFields = async () => {
+    setSavingFields(true)
+    try {
+      await customFieldsApi.setFieldValues(projectId, task.id,
+        fields.map(f => ({ field_id: f.id, value: fieldValues[f.id] ?? null }))
+      )
+    } catch { } finally { setSavingFields(false) }
+  }
+
+  // ── F06 依賴 ──────────────────────────────
+  const handleAddDep = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!depTargetId) return
+    setAddingDep(true)
+    try {
+      const res = await dependenciesApi.add(projectId, task.id, depTargetId)
+      setDeps(d => [...d, res.data])
+      setDepTargetId('')
+    } catch (err: any) {
+      alert(err?.response?.data?.detail ?? '新增依賴失敗')
+    } finally { setAddingDep(false) }
+  }
+
+  const handleRemoveDep = async (depId: string) => {
+    await dependenciesApi.remove(projectId, task.id, depId)
+    setDeps(d => d.filter(x => x.id !== depId))
+  }
+
+  // ── 複製 / 刪除 ───────────────────────────
+  const handleCopy = async () => {
+    setCopying(true)
+    try {
+      await createTask(projectId, {
+        title: `${task.title}（副本）`,
+        description: task.description ?? undefined,
+        priority: task.priority,
+        status: 'todo',
+        due_date: task.due_date ?? undefined,
+        start_date: task.start_date ?? undefined,
+        end_date: task.end_date ?? undefined,
+        assignee_ids: task.assignees.map(u => u.id),
+      })
+      onClose()
+    } finally { setCopying(false) }
   }
 
   const handleDelete = async () => {
@@ -67,52 +205,18 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
     onClose()
   }
 
-  const handleAddSubtask = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newSubtask.trim()) return
-    const res = await subtasksApi.create(projectId, task.id, newSubtask.trim())
-    setSubtasks((s) => [...s, res.data])
-    setNewSubtask('')
-    await fetchTasks(projectId)
-  }
-
-  const handleSubtaskStatus = async (st: SubTask) => {
-    const nextStatus = st.status === 'done' ? 'todo' : 'done'
-    const res = await subtasksApi.update(projectId, task.id, st.id, { status: nextStatus })
-    setSubtasks((s) => s.map((x) => x.id === st.id ? res.data : x))
-    await fetchTasks(projectId)
-  }
-
-  const handleStartTimer = async () => {
-    try {
-      const res = await timeLogsApi.start(projectId, task.id)
-      setRunningLog(res.data)
-      setTimeLogs((l) => [res.data, ...l])
-    } catch (e: any) {
-      alert(e?.response?.data?.detail ?? '計時器啟動失敗')
-    }
-  }
-
-  const handleStopTimer = async () => {
-    if (!runningLog) return
-    const res = await timeLogsApi.stop(projectId, task.id, runningLog.id)
-    setRunningLog(null)
-    setTimeLogs((l) => l.map((x) => x.id === runningLog.id ? res.data : x))
-  }
-
-  const totalMinutes = timeLogs.reduce((sum, l) => sum + l.minutes, 0)
-
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex justify-end" onClick={onClose}>
-      <div className="w-full max-w-lg bg-white h-full overflow-y-auto shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-lg bg-white h-full overflow-y-auto shadow-xl" onClick={e => e.stopPropagation()}>
         <div className="p-6 space-y-5">
+
           {/* 標題 */}
           <div className="flex items-start justify-between">
             <h2 className="text-xl font-bold text-gray-900 flex-1 pr-4">{task.title}</h2>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
           </div>
 
-          {/* 狀態/優先度 badges */}
+          {/* 狀態 / 優先度 badges */}
           <div className="flex gap-2 flex-wrap text-sm">
             <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full">{STATUS_LABELS[task.status]}</span>
             <span className="bg-blue-100 text-blue-600 px-3 py-1 rounded-full">{PRIORITY_LABELS[task.priority]}</span>
@@ -129,81 +233,315 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
             <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap">{task.description}</div>
           )}
 
-          {/* 指派人 */}
-          {task.assignees.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-gray-500 mb-2">指派給</p>
-              <div className="flex gap-2 flex-wrap">
-                {task.assignees.map((u) => (
-                  <div key={u.id} className="flex items-center gap-1 text-sm bg-gray-100 rounded-full px-3 py-1">
-                    <div className="w-5 h-5 rounded-full bg-primary-500 text-white text-xs flex items-center justify-center">
-                      {u.display_name.charAt(0)}
-                    </div>
-                    <span>{u.display_name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 子任務 */}
+          {/* ── 日期（起始/結束/截止，可行內編輯）─────── */}
           <div className="border-t border-gray-100 pt-4">
-            <p className="text-xs font-medium text-gray-500 mb-3">子任務 ({subtasks.length})</p>
-            <ul className="space-y-1.5 mb-3">
-              {subtasks.map((st) => (
-                <li key={st.id} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={st.status === 'done'}
-                    onChange={() => handleSubtaskStatus(st)}
-                    className="rounded"
-                  />
-                  <span className={`text-sm flex-1 ${st.status === 'done' ? 'line-through text-gray-400' : 'text-gray-700'}`}>
-                    {st.title}
-                  </span>
-                </li>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-gray-500">日期</p>
+              <button
+                className="text-xs text-primary-600 hover:underline"
+                onClick={() => {
+                  setDraftStart(task.start_date ?? '')
+                  setDraftEnd(task.end_date ?? '')
+                  setDraftDue(task.due_date ?? '')
+                  setEditingDates(v => !v)
+                }}
+              >
+                {editingDates ? '取消' : '編輯'}
+              </button>
+            </div>
+            {editingDates ? (
+              <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">開始日期</label>
+                    <input type="date" className="input w-full text-sm"
+                      value={draftStart} onChange={e => setDraftStart(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">結束日期</label>
+                    <input type="date" className="input w-full text-sm"
+                      value={draftEnd} onChange={e => setDraftEnd(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">截止日期</label>
+                    <input type="date" className="input w-full text-sm"
+                      value={draftDue} onChange={e => setDraftDue(e.target.value)} />
+                  </div>
+                </div>
+                <button onClick={handleSaveDates} disabled={savingDates} className="btn-primary text-sm px-4">
+                  {savingDates ? '儲存中…' : '確認'}
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+                {task.start_date
+                  ? <span className="flex items-center gap-1"><span className="text-gray-400">開始</span><span className="font-medium text-gray-700">{task.start_date}</span></span>
+                  : <span className="text-gray-300">開始日期未設定</span>
+                }
+                {task.end_date
+                  ? <span className="flex items-center gap-1"><span className="text-gray-400">結束</span><span className="font-medium text-gray-700">{task.end_date}</span></span>
+                  : <span className="text-gray-300">結束日期未設定</span>
+                }
+                {task.due_date
+                  ? <span className="flex items-center gap-1"><span className="text-gray-400">截止</span><span className="font-medium text-orange-600">{task.due_date}</span></span>
+                  : <span className="text-gray-300">截止日期未設定</span>
+                }
+              </div>
+            )}
+          </div>
+
+          {/* ── 施作人員（可多選編輯）──────────────────── */}
+          <div className="border-t border-gray-100 pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-gray-500">施作人員</p>
+              <button
+                className="text-xs text-primary-600 hover:underline"
+                onClick={() => { setEditingAssignees(v => !v); setSelectedAssignees(task.assignees.map(u => u.id)) }}
+              >
+                {editingAssignees ? '取消' : '編輯'}
+              </button>
+            </div>
+
+            {!editingAssignees ? (
+              task.assignees.length === 0
+                ? <p className="text-sm text-gray-400">尚未指派人員</p>
+                : (
+                  <div className="flex gap-2 flex-wrap">
+                    {task.assignees.map(u => (
+                      <div key={u.id} className="flex items-center gap-1.5 text-sm bg-gray-100 rounded-full px-3 py-1">
+                        <div className="w-5 h-5 rounded-full bg-primary-500 text-white text-xs flex items-center justify-center font-medium">
+                          {u.display_name.charAt(0).toUpperCase()}
+                        </div>
+                        <span>{u.display_name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+            ) : (
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-2 p-2 bg-gray-50 border border-gray-200 rounded-lg">
+                  {members.map(m => {
+                    const sel = selectedAssignees.includes(m.id)
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => toggleAssignee(m.id)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm border transition-colors ${
+                          sel ? 'bg-primary-500 text-white border-primary-500' : 'bg-white text-gray-600 border-gray-200 hover:border-primary-300'
+                        }`}
+                      >
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${sel ? 'bg-white/30' : 'bg-primary-100 text-primary-600'}`}>
+                          {m.display_name.charAt(0).toUpperCase()}
+                        </div>
+                        {m.display_name}
+                        {sel && <span className="text-xs opacity-80">✓</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+                <button
+                  onClick={handleSaveAssignees}
+                  disabled={savingAssignees}
+                  className="btn-primary text-sm px-4"
+                >
+                  {savingAssignees ? '儲存中…' : '確認指派'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ── 子任務（可展開編輯）──────────────────────── */}
+          <div className="border-t border-gray-100 pt-4">
+            <p className="text-xs font-medium text-gray-500 mb-3">
+              細項任務（{subtasks.length}）
+            </p>
+            <div className="space-y-2 mb-3">
+              {subtasks.map(st => (
+                <div key={st.id} className="border border-gray-100 rounded-xl overflow-hidden">
+                  {/* 摘要列 */}
+                  <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 transition-colors">
+                    {/* 狀態循環按鈕 */}
+                    <button
+                      type="button"
+                      onClick={() => handleSubtaskStatusCycle(st)}
+                      className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-medium border-0 transition-colors ${SUBTASK_STATUS_COLORS[st.status] ?? 'bg-gray-100 text-gray-500'}`}
+                      title="點擊切換狀態"
+                    >
+                      {SUBTASK_STATUS_LABELS[st.status] ?? st.status}
+                    </button>
+                    <span
+                      className={`flex-1 text-sm cursor-pointer select-none ${st.status === 'done' ? 'line-through text-gray-400' : 'text-gray-700'}`}
+                      onClick={() => setExpandedSubtask(expandedSubtask === st.id ? null : st.id)}
+                    >
+                      {st.title}
+                    </span>
+                    {/* 進度快覽 */}
+                    {st.progress > 0 && st.status !== 'done' && (
+                      <span className="text-xs text-gray-400 flex-shrink-0">{st.progress}%</span>
+                    )}
+                    <button
+                      onClick={() => setExpandedSubtask(expandedSubtask === st.id ? null : st.id)}
+                      className="text-gray-400 text-xs flex-shrink-0"
+                    >
+                      {expandedSubtask === st.id ? '▲' : '▼'}
+                    </button>
+                  </div>
+
+                  {/* 展開區：進度 + 工時 + 刪除 */}
+                  {expandedSubtask === st.id && (
+                    <div className="px-3 py-3 space-y-3 bg-white border-t border-gray-100">
+                      {/* 執行進度 */}
+                      <div>
+                        <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                          <span>執行進度</span>
+                          <span className="font-medium">{st.progress}%</span>
+                        </div>
+                        <input
+                          type="range" min={0} max={100} value={st.progress}
+                          className="w-full accent-primary-500"
+                          onChange={e => handleSubtaskProgress(st, +e.target.value)}
+                        />
+                        <div className="flex justify-between text-xs text-gray-400">
+                          <span>0%</span><span>50%</span><span>100%</span>
+                        </div>
+                      </div>
+
+                      {/* 工時填寫 */}
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">工時紀錄（分鐘）</label>
+                        <input
+                          type="number" min={0} placeholder="輸入實際工時（分鐘）"
+                          className="input w-full text-sm"
+                          value={subtaskWorkHours[st.id] ?? ''}
+                          onChange={e => setSubtaskWorkHours(h => ({ ...h, [st.id]: e.target.value }))}
+                        />
+                      </div>
+
+                      {/* 狀態快速設定 */}
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">執行狀態</label>
+                        <div className="flex gap-2">
+                          {SUBTASK_STATUSES.map(s => (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => {
+                                if (st.status !== s) {
+                                  subtasksApi.update(projectId, task.id, st.id, { status: s }).then(r => {
+                                    setSubtasks(prev => prev.map(x => x.id === st.id ? r.data : x))
+                                    fetchTasks(projectId)
+                                  })
+                                }
+                              }}
+                              className={`flex-1 text-xs py-1.5 rounded-lg border font-medium transition-colors ${
+                                st.status === s
+                                  ? SUBTASK_STATUS_COLORS[s]
+                                  : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+                              }`}
+                            >
+                              {SUBTASK_STATUS_LABELS[s]}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSubtaskDelete(st)}
+                        className="text-xs text-red-400 hover:text-red-600"
+                      >
+                        刪除細項
+                      </button>
+                    </div>
+                  )}
+                </div>
               ))}
-            </ul>
+            </div>
+
             <form onSubmit={handleAddSubtask} className="flex gap-2">
               <input
                 className="input flex-1 text-sm"
-                placeholder="新增子任務…"
+                placeholder="新增細項任務…"
                 value={newSubtask}
-                onChange={(e) => setNewSubtask(e.target.value)}
+                onChange={e => setNewSubtask(e.target.value)}
               />
               <button type="submit" className="btn-secondary px-3 text-sm">+</button>
             </form>
           </div>
 
-          {/* 時間追蹤 */}
-          <div className="border-t border-gray-100 pt-4">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-medium text-gray-500">時間追蹤</p>
-              <span className="text-xs text-gray-400">總計 {totalMinutes} 分鐘</span>
+          {/* ── F05 自訂欄位 ──────────────────────────── */}
+          {fields.length > 0 && (
+            <div className="border-t border-gray-100 pt-4">
+              <p className="text-xs font-medium text-gray-500 mb-3">自訂欄位</p>
+              <div className="space-y-2">
+                {fields.map(f => (
+                  <div key={f.id} className="flex items-center gap-2">
+                    <label className="text-xs text-gray-500 w-24 flex-shrink-0 truncate">{f.name}</label>
+                    {f.field_type === 'select' && f.options?.choices ? (
+                      <select className="input flex-1 text-sm" value={fieldValues[f.id] ?? ''} onChange={e => setFieldValues(v => ({ ...v, [f.id]: e.target.value }))}>
+                        <option value="">— 請選擇 —</option>
+                        {f.options.choices.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    ) : f.field_type === 'date' ? (
+                      <input type="date" className="input flex-1 text-sm" value={fieldValues[f.id] ?? ''} onChange={e => setFieldValues(v => ({ ...v, [f.id]: e.target.value }))} />
+                    ) : f.field_type === 'number' ? (
+                      <input type="number" className="input flex-1 text-sm" value={fieldValues[f.id] ?? ''} onChange={e => setFieldValues(v => ({ ...v, [f.id]: e.target.value }))} />
+                    ) : (
+                      <input type="text" className="input flex-1 text-sm" value={fieldValues[f.id] ?? ''} onChange={e => setFieldValues(v => ({ ...v, [f.id]: e.target.value }))} />
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button onClick={handleSaveFields} disabled={savingFields} className="mt-2 btn-secondary text-xs px-3">
+                {savingFields ? '儲存中…' : '儲存欄位值'}
+              </button>
             </div>
-            {runningLog ? (
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-green-600 font-medium">⏱ {elapsed} 分鐘</span>
-                <button onClick={handleStopTimer} className="btn-secondary text-sm px-3">停止</button>
-              </div>
-            ) : (
-              <button onClick={handleStartTimer} className="btn-secondary text-sm px-3">▶ 開始計時</button>
+          )}
+
+          {/* ── F06 任務依賴 ──────────────────────────── */}
+          <div className="border-t border-gray-100 pt-4">
+            <p className="text-xs font-medium text-gray-500 mb-3">前置任務</p>
+            {deps.length === 0
+              ? <p className="text-xs text-gray-400 mb-2">尚無設定</p>
+              : (
+                <ul className="space-y-1 mb-3">
+                  {deps.map(dep => {
+                    const t = allTasks.find(x => x.id === dep.to_task_id)
+                    return (
+                      <li key={dep.id} className="flex items-center gap-2 text-sm">
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t?.status === 'done' ? 'bg-green-500' : 'bg-orange-400'}`} />
+                        <span className={`flex-1 truncate ${t?.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>{t?.title ?? dep.to_task_id}</span>
+                        <button className="text-xs text-red-400 hover:text-red-600" onClick={() => handleRemoveDep(dep.id)}>✕</button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )
+            }
+            {allTasks.length > 0 && (
+              <form onSubmit={handleAddDep} className="flex gap-2">
+                <select className="input flex-1 text-sm" value={depTargetId} onChange={e => setDepTargetId(e.target.value)}>
+                  <option value="">選擇前置任務…</option>
+                  {allTasks.filter(t => !deps.some(d => d.to_task_id === t.id)).map(t => (
+                    <option key={t.id} value={t.id}>{t.title}</option>
+                  ))}
+                </select>
+                <button type="submit" disabled={addingDep || !depTargetId} className="btn-secondary px-3 text-sm">
+                  {addingDep ? '…' : '+ 新增'}
+                </button>
+              </form>
             )}
-            {timeLogs.filter((l) => l.ended_at).slice(0, 3).map((l) => (
-              <div key={l.id} className="text-xs text-gray-400 mt-1">
-                {new Date(l.started_at).toLocaleDateString('zh-TW')} — {l.minutes} 分鐘{l.note ? ` · ${l.note}` : ''}
-              </div>
-            ))}
           </div>
 
-          {/* 評論 */}
+          {/* ── 評論 ────────────────────────────────── */}
           <div className="border-t border-gray-100 pt-4">
             <p className="text-xs font-medium text-gray-500 mb-3">評論 ({task.comments.length})</p>
             <div className="space-y-3 mb-4">
-              {task.comments.map((c) => (
+              {task.comments.map(c => (
                 <div key={c.id} className="flex gap-2">
-                  <div className="w-7 h-7 rounded-full bg-primary-500 text-white text-xs flex items-center justify-center flex-shrink-0">
-                    {c.author.display_name.charAt(0)}
+                  <div className="w-7 h-7 rounded-full bg-primary-500 text-white text-xs flex items-center justify-center flex-shrink-0 font-medium">
+                    {c.author.display_name.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1">
                     <p className="text-xs font-medium text-gray-700">{c.author.display_name}</p>
@@ -218,14 +556,17 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
                 className="input flex-1"
                 placeholder="新增評論（@名稱 可 mention）…"
                 value={comment}
-                onChange={(e) => setComment(e.target.value)}
+                onChange={e => setComment(e.target.value)}
               />
               <button type="submit" disabled={submitting} className="btn-primary px-3">送出</button>
             </form>
           </div>
 
-          {/* 刪除 */}
-          <div className="border-t border-gray-100 pt-4">
+          {/* ── 複製 / 刪除 ─────────────────────────── */}
+          <div className="border-t border-gray-100 pt-4 flex items-center justify-between">
+            <button onClick={handleCopy} disabled={copying} className="text-sm text-blue-500 hover:text-blue-700 disabled:opacity-50">
+              {copying ? '複製中…' : '📋 複製任務'}
+            </button>
             <button onClick={handleDelete} className="text-sm text-red-500 hover:text-red-700">刪除任務</button>
           </div>
         </div>

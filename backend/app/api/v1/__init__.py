@@ -5,6 +5,7 @@ from app.api.v1.endpoints import (
     calendar,
     custom_fields,
     daily_tasks,
+    daily_task_import,
     dashboard,
     dependencies,
     milestones,
@@ -28,6 +29,7 @@ router.include_router(subtasks.router)
 router.include_router(time_logs.router)
 router.include_router(time_logs.report_router)
 router.include_router(daily_tasks.router)
+router.include_router(daily_task_import.router)
 router.include_router(templates.router)
 router.include_router(calendar.router)
 router.include_router(dashboard.router)

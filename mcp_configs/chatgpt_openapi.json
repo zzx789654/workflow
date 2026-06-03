@@ -1,0 +1,52 @@
+{
+  "_comment": "ChatGPT Actions / Gemini 使用 HTTP 模式。先啟動 server：python mcp_server.py --transport http --port 8765",
+  "_usage": "在 ChatGPT Plugin 設定頁貼入 OpenAPI schema URL：http://YOUR_HOST:8765/openapi.json",
+  "openapi": "3.1.0",
+  "info": {
+    "title": "WorkFlow MCP API",
+    "description": "透過 HTTP REST 呼叫 WorkFlow 專案管理系統，管理任務、專案、日常作業。",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {"url": "http://localhost:8765", "description": "本機 MCP Server（HTTP 模式）"}
+  ],
+  "security": [{"bearerAuth": []}],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "設定 MCP_API_KEY 環境變數後需帶此 token"
+      }
+    }
+  },
+  "paths": {
+    "/tools": {
+      "get": {
+        "summary": "列出所有可用工具",
+        "operationId": "listTools",
+        "responses": {"200": {"description": "工具清單"}}
+      }
+    },
+    "/tools/{tool_name}": {
+      "post": {
+        "summary": "呼叫指定工具",
+        "operationId": "callTool",
+        "parameters": [
+          {"name": "tool_name", "in": "path", "required": true,
+           "schema": {"type": "string", "enum": [
+             "get_dashboard","list_projects","create_project",
+             "list_tasks","create_task","update_task","move_task","add_comment",
+             "search","list_daily_tasks","create_daily_task",
+             "list_members","list_notifications","get_time_report","list_milestones"
+           ]}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object"}}}
+        },
+        "responses": {"200": {"description": "工具執行結果"}}
+      }
+    }
+  }
+}
