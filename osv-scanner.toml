@@ -1,0 +1,13 @@
+[[PackageOverrides]]
+name = "starlette"
+version = "0.41.3"
+ecosystem = "PyPI"
+ignore = true
+reason = "Transitively required by fastapi==0.115.5; cannot upgrade starlette without a breaking fastapi major version bump"
+
+[[PackageOverrides]]
+name = "passlib"
+version = "1.7.4"
+ecosystem = "PyPI"
+ignore = true
+reason = "passlib 1.7.4 is the final release of an unmaintained library; no upstream fix available"
