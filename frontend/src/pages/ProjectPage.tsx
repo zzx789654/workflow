@@ -15,6 +15,7 @@ import GanttTab from '../components/project/GanttTab'
 import ListView from '../components/project/ListView'
 import TableView from '../components/project/TableView'
 import BulkActionBar from '../components/project/BulkActionBar'
+import WebhookSettingsPage from './WebhookSettingsPage'
 
 type ViewMode = 'kanban' | 'list' | 'table'
 
@@ -97,6 +98,7 @@ export default function ProjectPage() {
         <NavLink to="gantt" className={navClass}>甘特圖</NavLink>
         <NavLink to="milestones" className={navClass}>里程碑</NavLink>
         <NavLink to="members" className={navClass}>成員</NavLink>
+        <NavLink to="webhooks" className={navClass}>Webhook</NavLink>
       </nav>
 
       <Routes>
@@ -171,6 +173,7 @@ export default function ProjectPage() {
         <Route path="/gantt" element={<GanttTab projectId={projectId} />} />
         <Route path="/milestones" element={<MilestonesTab projectId={projectId} />} />
         <Route path="/members" element={<MembersTab projectId={projectId} />} />
+        <Route path="/webhooks" element={<WebhookSettingsPage />} />
       </Routes>
 
       {selectedTask && (

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import jsPDF from 'jspdf'
 import { weeklyReportsApi, type WeeklyReport } from '../api/weeklyReports'
 
 function toMarkdown(report: WeeklyReport): string {
@@ -36,6 +37,44 @@ export default function WeeklyReportPage() {
   const [copied, setCopied] = useState(false)
   const [plan, setPlan] = useState('')
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleExportPdf = () => {
+    if (!report) return
+    const md = toMarkdown({ ...report, next_week_plan: plan })
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' })
+    const margin = 40
+    const lineHeight = 16
+    const pageWidth = doc.internal.pageSize.getWidth() - margin * 2
+    let y = margin
+
+    doc.setFontSize(16)
+    md.split('\n').forEach((line) => {
+      if (y > doc.internal.pageSize.getHeight() - margin) {
+        doc.addPage()
+        y = margin
+      }
+      if (line.startsWith('# ')) {
+        doc.setFontSize(16)
+        doc.setFont('helvetica', 'bold')
+        const text = line.replace(/^# /, '')
+        doc.text(text, margin, y)
+        doc.setFontSize(11)
+        doc.setFont('helvetica', 'normal')
+      } else if (line.startsWith('## ')) {
+        doc.setFontSize(13)
+        doc.setFont('helvetica', 'bold')
+        doc.text(line.replace(/^## /, ''), margin, y)
+        doc.setFontSize(11)
+        doc.setFont('helvetica', 'normal')
+      } else {
+        const wrapped = doc.splitTextToSize(line || ' ', pageWidth)
+        doc.text(wrapped, margin, y)
+        y += lineHeight * (wrapped.length - 1)
+      }
+      y += lineHeight
+    })
+    doc.save(`weekly-report-${report.week_start}.pdf`)
+  }
 
   const load = () => {
     setLoading(true)
@@ -101,6 +140,9 @@ export default function WeeklyReportPage() {
         <div className="flex gap-2">
           <button onClick={handleCopy} className="btn-secondary">
             {copied ? '已複製！' : '複製 Markdown'}
+          </button>
+          <button onClick={handleExportPdf} disabled={!report} className="btn-secondary">
+            📄 匯出 PDF
           </button>
           <button onClick={handleGenerate} disabled={generating} className="btn-primary">
             {generating ? '產生中…' : '產生報告'}

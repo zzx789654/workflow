@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { toPng } from 'html-to-image'
 import { addDays, differenceInDays, format, startOfDay, parseISO, isValid } from 'date-fns'
 import { tasksApi } from '../../api/tasks'
 import type { Task } from '../../types'
@@ -31,10 +32,26 @@ interface Props { projectId: string }
 export default function GanttTab({ projectId }: Props) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
+  const ganttRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     tasksApi.list(projectId).then(r => setTasks(r.data)).finally(() => setLoading(false))
   }, [projectId])
+
+  const handleExportPng = async () => {
+    if (!ganttRef.current) return
+    setExporting(true)
+    try {
+      const dataUrl = await toPng(ganttRef.current, { backgroundColor: '#ffffff' })
+      const a = document.createElement('a')
+      a.href = dataUrl
+      a.download = `gantt-${projectId}.png`
+      a.click()
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const withDates = tasks.filter(t => t.start_date || t.end_date || t.due_date)
 
@@ -66,7 +83,17 @@ export default function GanttTab({ projectId }: Props) {
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div>
+      <div className="flex justify-end mb-3">
+        <button
+          onClick={handleExportPng}
+          disabled={exporting}
+          className="btn-secondary text-sm"
+        >
+          {exporting ? '匯出中…' : '📷 匯出 PNG'}
+        </button>
+      </div>
+      <div className="overflow-x-auto" ref={ganttRef}>
       <div className="min-w-max">
         {/* 標題列 */}
         <div className="flex border-b border-gray-200">
@@ -156,6 +183,7 @@ export default function GanttTab({ projectId }: Props) {
           <span className="border-l-2 border-red-400 border-dashed h-3 inline-block" />
           今日
         </span>
+      </div>
       </div>
     </div>
   )

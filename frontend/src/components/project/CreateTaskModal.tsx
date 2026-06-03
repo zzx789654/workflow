@@ -15,6 +15,8 @@ export default function CreateTaskModal({ projectId, onClose }: Props) {
   const [dueDate, setDueDate] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [recurrenceRule, setRecurrenceRule] = useState('')
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState('')
   const [loading, setLoading] = useState(false)
   const createTask = useTaskStore((s) => s.createTask)
 
@@ -31,6 +33,8 @@ export default function CreateTaskModal({ projectId, onClose }: Props) {
         due_date: dueDate || undefined,
         start_date: startDate || undefined,
         end_date: endDate || undefined,
+        recurrence_rule: recurrenceRule || undefined,
+        recurrence_end_date: recurrenceEndDate || undefined,
       })
       onClose()
     } finally {
@@ -85,6 +89,35 @@ export default function CreateTaskModal({ projectId, onClose }: Props) {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">截止日期（Due）</label>
               <input className="input" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            </div>
+            <div className="border-t border-gray-100 pt-3">
+              <p className="text-xs font-medium text-gray-500 mb-2">🔁 重複排程（選填）</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">重複規則</label>
+                  <select className="input text-sm" value={recurrenceRule} onChange={(e) => setRecurrenceRule(e.target.value)}>
+                    <option value="">不重複</option>
+                    <option value="daily">每天</option>
+                    <option value="weekly">每週</option>
+                    <option value="monthly">每月</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">重複結束日</label>
+                  <input
+                    className="input text-sm"
+                    type="date"
+                    value={recurrenceEndDate}
+                    onChange={(e) => setRecurrenceEndDate(e.target.value)}
+                    disabled={!recurrenceRule}
+                  />
+                </div>
+              </div>
+              {recurrenceRule && (
+                <p className="text-xs text-amber-600 mt-1.5">
+                  ⚠️ 自動建立下一筆任務需後端 worker 服務支援（已儲存規則，排程待啟用）
+                </p>
+              )}
             </div>
             <div className="flex gap-3 pt-2">
               <button type="submit" disabled={loading} className="btn-primary flex-1">
