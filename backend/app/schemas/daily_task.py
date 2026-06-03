@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date as _Date
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -13,7 +14,7 @@ class DailyTaskCreate(BaseModel):
     description: str | None = None
     status: DailyTaskStatus = DailyTaskStatus.pending
     progress: int = Field(0, ge=0, le=100)
-    date: date
+    date: _Date
     started_at: datetime | None = None
     ended_at: datetime | None = None
     notify_at: datetime | None = None
@@ -26,7 +27,7 @@ class DailyTaskUpdate(BaseModel):
     description: str | None = None
     status: DailyTaskStatus | None = None
     progress: int | None = Field(None, ge=0, le=100)
-    date: date | None = None
+    date: _Date | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
     notify_at: datetime | None = None
@@ -41,7 +42,7 @@ class DailyTaskOut(BaseModel):
     description: str | None
     status: DailyTaskStatus
     progress: int
-    date: date
+    date: _Date
     started_at: datetime | None
     ended_at: datetime | None
     notify_at: datetime | None
