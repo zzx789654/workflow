@@ -158,18 +158,14 @@ async def test_milestone_crud(client: AsyncClient, admin_token: str, project_id:
     assert patch_resp.json()["name"] == "M1 Updated"
 
     # Delete
-    del_resp = await client.delete(
-        f"/api/v1/projects/{project_id}/milestones/{mid}", headers=auth(admin_token)
-    )
+    del_resp = await client.delete(f"/api/v1/projects/{project_id}/milestones/{mid}", headers=auth(admin_token))
     assert del_resp.status_code == 204
 
 
 @pytest.mark.asyncio
 async def test_milestone_not_found(client: AsyncClient, admin_token: str, project_id: str):
     fake_id = str(uuid.uuid4())
-    resp = await client.delete(
-        f"/api/v1/projects/{project_id}/milestones/{fake_id}", headers=auth(admin_token)
-    )
+    resp = await client.delete(f"/api/v1/projects/{project_id}/milestones/{fake_id}", headers=auth(admin_token))
     assert resp.status_code == 404
 
 
@@ -551,9 +547,7 @@ async def test_dependency_add_and_remove(
 
 
 @pytest.mark.asyncio
-async def test_dependency_self_reference_rejected(
-    client: AsyncClient, admin_token: str, project_id: str, task_id: str
-):
+async def test_dependency_self_reference_rejected(client: AsyncClient, admin_token: str, project_id: str, task_id: str):
     resp = await client.post(
         f"/api/v1/projects/{project_id}/tasks/{task_id}/dependencies/",
         json={"to_task_id": task_id},
