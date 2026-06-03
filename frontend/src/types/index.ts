@@ -171,3 +171,45 @@ export type WsEvent =
   | { type: 'task_deleted'; task_id: string }
   | { type: 'comment_added'; task_id: string }
   | { type: 'presence'; user_id: string; action: 'joined' | 'left' }
+
+export interface Checkin {
+  id: string
+  task_id: string
+  user_id: string
+  content: string
+  progress: number
+  checked_at: string
+}
+
+export interface Attachment {
+  id: string
+  task_id: string
+  filename: string
+  file_size: number
+  content_type: string
+  created_at: string
+}
+
+export interface Announcement {
+  id: string
+  title: string
+  content: string
+  created_at: string
+  is_read?: boolean
+}
+
+export interface AiSuggestion {
+  id: string
+  title: string
+  reason: string
+  score: number
+  project_id: string
+}
+
+export interface WorkloadMember {
+  user_id: string
+  display_name: string
+  task_count: number
+  total_minutes: number
+  is_overloaded: boolean
+}

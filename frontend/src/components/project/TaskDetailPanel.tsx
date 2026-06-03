@@ -4,6 +4,9 @@ import { tasksApi } from '../../api/tasks'
 import { subtasksApi } from '../../api/subtasks'
 import { timeLogsApi } from '../../api/timeLogs'
 import { useTaskStore } from '../../stores/taskStore'
+import ReactionsSection from './ReactionsSection'
+import CheckinPanel from './CheckinPanel'
+import AttachmentList from './AttachmentList'
 
 interface Props {
   task: Task
@@ -196,6 +199,17 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
             ))}
           </div>
 
+          {/* 附件 */}
+          <div className="border-t border-gray-100 pt-4">
+            <p className="text-xs font-medium text-gray-500 mb-3">附件</p>
+            <AttachmentList projectId={projectId} taskId={task.id} />
+          </div>
+
+          {/* Check-in */}
+          <div className="border-t border-gray-100 pt-4">
+            <CheckinPanel projectId={projectId} taskId={task.id} />
+          </div>
+
           {/* 評論 */}
           <div className="border-t border-gray-100 pt-4">
             <p className="text-xs font-medium text-gray-500 mb-3">評論 ({task.comments.length})</p>
@@ -209,6 +223,7 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
                     <p className="text-xs font-medium text-gray-700">{c.author.display_name}</p>
                     <p className="text-sm text-gray-600 whitespace-pre-wrap">{c.content}</p>
                     <p className="text-xs text-gray-400">{new Date(c.created_at).toLocaleString('zh-TW')}</p>
+                    <ReactionsSection projectId={projectId} taskId={task.id} commentId={c.id} />
                   </div>
                 </div>
               ))}

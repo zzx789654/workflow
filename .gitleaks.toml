@@ -1,7 +1,7 @@
 [extend]
 useDefault = true
 
-[[rules.allowlist]]
+[allowlist]
 description = "Ignore test fixtures, placeholder passwords and dev defaults"
 regexes = [
   "change_me_",

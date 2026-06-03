@@ -1,21 +1,33 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    ai_suggest,
+    announcements,
+    attachments,
     auth,
+    bulk_actions,
     calendar,
+    checkins,
     custom_fields,
     daily_tasks,
     dashboard,
     dependencies,
+    health_score,
+    insights,
     milestones,
     notifications,
     projects,
+    public_share,
+    reactions,
     search,
     subtasks,
     tasks,
     templates,
     time_logs,
     users,
+    webhooks,
+    weekly_reports,
+    workload,
 )
 
 router = APIRouter(prefix="/api/v1")
@@ -23,6 +35,7 @@ router.include_router(auth.router)
 router.include_router(users.router)
 router.include_router(projects.router)
 router.include_router(milestones.router)
+router.include_router(bulk_actions.router)
 router.include_router(tasks.router)
 router.include_router(subtasks.router)
 router.include_router(time_logs.router)
@@ -35,3 +48,16 @@ router.include_router(search.router)
 router.include_router(notifications.router)
 router.include_router(custom_fields.router)
 router.include_router(dependencies.router)
+router.include_router(weekly_reports.router)
+router.include_router(workload.router)
+router.include_router(reactions.router)
+router.include_router(checkins.router)
+router.include_router(announcements.router)
+router.include_router(public_share.router)
+router.include_router(insights.router)
+router.include_router(health_score.router)
+router.include_router(ai_suggest.router)
+router.include_router(attachments.router)
+router.include_router(attachments.file_router)
+router.include_router(webhooks.router)
+router.include_router(webhooks.project_router)

@@ -1,17 +1,23 @@
+import os
 import uuid
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.security import hash_password
 from app.db.session import Base, get_db
 from app.main import app
 from app.models.user import User, UserRole
 
-TEST_DB_URL = "postgresql+asyncpg://workflow:workflow_pass@localhost:5432/workflow_test"
+TEST_DB_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql+asyncpg://workflow:workflow_pass@localhost:5432/workflow_test",
+)
 
-engine = create_async_engine(TEST_DB_URL, echo=False)
+engine = create_async_engine(TEST_DB_URL, echo=False, poolclass=NullPool)
 TestSession = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -47,6 +53,10 @@ async def client():
 
 @pytest_asyncio.fixture
 async def admin_user(db: AsyncSession):
+    result = await db.execute(select(User).where(User.email == "admin@test.com"))
+    existing = result.scalar_one_or_none()
+    if existing is not None:
+        return existing
     user = User(
         id=uuid.uuid4(),
         email="admin@test.com",
