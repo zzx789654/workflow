@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,12 +14,13 @@ from app.models.user import User
 from app.models.v3_p2_models import Webhook
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+project_router = APIRouter(prefix="/projects/{project_id}/webhooks", tags=["webhooks"])
 
 
 class WebhookCreate(BaseModel):
     url: str
     events: list[str] = []
-    project_id: uuid.UUID
+    project_id: uuid.UUID | None = None
     name: str | None = None
     secret: str | None = None
     is_active: bool = True
@@ -60,10 +61,90 @@ async def _get_webhook_for_user(webhook_id: uuid.UUID, user: User, db: AsyncSess
     webhook = await db.get(Webhook, webhook_id)
     if not webhook:
         raise HTTPException(status_code=404, detail="Webhook not found")
-    # Verify user has access to the project this webhook belongs to
     await _check_project_member(webhook.project_id, user, db)
     return webhook
 
+
+# ── Project-scoped routes (used by frontend) ─────────────────────────────────
+
+@project_router.get("/", response_model=list[WebhookOut])
+async def list_project_webhooks(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await _check_project_member(project_id, current_user, db)
+    result = await db.execute(
+        select(Webhook).where(Webhook.project_id == project_id).order_by(Webhook.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+@project_router.post("/", response_model=WebhookOut, status_code=201)
+async def create_project_webhook(
+    project_id: uuid.UUID,
+    body: WebhookCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await _check_project_member(project_id, current_user, db)
+    webhook = Webhook(
+        project_id=project_id,
+        name=body.name,
+        url=body.url,
+        events=body.events,
+        is_active=body.is_active,
+        secret=body.secret,
+    )
+    db.add(webhook)
+    await db.commit()
+    await db.refresh(webhook)
+    return webhook
+
+
+@project_router.patch("/{webhook_id}", response_model=WebhookOut)
+async def update_project_webhook(
+    project_id: uuid.UUID,
+    webhook_id: uuid.UUID,
+    body: WebhookUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await _check_project_member(project_id, current_user, db)
+    webhook = await _get_webhook_for_user(webhook_id, current_user, db)
+    update_data = body.model_dump(exclude_none=True)
+    for field, value in update_data.items():
+        setattr(webhook, field, value)
+    await db.commit()
+    await db.refresh(webhook)
+    return webhook
+
+
+@project_router.delete("/{webhook_id}", status_code=204)
+async def delete_project_webhook(
+    project_id: uuid.UUID,
+    webhook_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await _check_project_member(project_id, current_user, db)
+    webhook = await _get_webhook_for_user(webhook_id, current_user, db)
+    await db.delete(webhook)
+    await db.commit()
+
+
+@project_router.post("/{webhook_id}/test")
+async def test_project_webhook(
+    project_id: uuid.UUID,
+    webhook_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await _check_project_member(project_id, current_user, db)
+    return await _do_test_webhook(webhook_id, current_user, db)
+
+
+# ── Global routes ─────────────────────────────────────────────────────────────
 
 @router.post("/", response_model=WebhookOut, status_code=201)
 async def create_webhook(
@@ -71,6 +152,8 @@ async def create_webhook(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if not body.project_id:
+        raise HTTPException(status_code=422, detail="project_id is required")
     await _check_project_member(body.project_id, current_user, db)
     webhook = Webhook(
         project_id=body.project_id,
@@ -94,7 +177,6 @@ async def list_webhooks(
     if current_user.role.value == "admin":
         result = await db.execute(select(Webhook).order_by(Webhook.created_at.desc()))
     else:
-        # Return webhooks for projects where user is a member
         result = await db.execute(
             select(Webhook)
             .join(ProjectMember, Webhook.project_id == ProjectMember.project_id)
@@ -137,12 +219,16 @@ async def test_webhook(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    return await _do_test_webhook(webhook_id, current_user, db)
+
+
+async def _do_test_webhook(webhook_id: uuid.UUID, current_user: User, db: AsyncSession) -> dict:
     webhook = await _get_webhook_for_user(webhook_id, current_user, db)
     payload = {
         "event": "test",
         "webhook_id": str(webhook.id),
         "project_id": str(webhook.project_id),
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     try:
         with httpx.Client(timeout=10.0) as client:
