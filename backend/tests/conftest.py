@@ -3,6 +3,7 @@ import uuid
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -52,6 +53,10 @@ async def client():
 
 @pytest_asyncio.fixture
 async def admin_user(db: AsyncSession):
+    result = await db.execute(select(User).where(User.email == "admin@test.com"))
+    existing = result.scalar_one_or_none()
+    if existing is not None:
+        return existing
     user = User(
         id=uuid.uuid4(),
         email="admin@test.com",
