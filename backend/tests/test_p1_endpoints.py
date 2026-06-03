@@ -584,3 +584,110 @@ async def test_task_get_update_delete(client: AsyncClient, admin_token: str, pro
         headers=auth(admin_token),
     )
     assert del_resp.status_code == 204
+
+
+# ── Auth refresh ──────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_auth_refresh(client: AsyncClient, admin_user):
+    login_resp = await client.post("/api/v1/auth/login", json={"email": "admin@test.com", "password": "Admin1234"})
+    assert login_resp.status_code == 200
+    refresh_token = login_resp.json()["refresh_token"]
+
+    resp = await client.post("/api/v1/auth/refresh", params={"refresh_token": refresh_token})
+    assert resp.status_code == 200
+    assert "access_token" in resp.json()
+    assert "refresh_token" in resp.json()
+
+
+# ── Project get / update / delete ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_project_get_update_delete(client: AsyncClient, admin_token: str, project_id: str):
+    get_resp = await client.get(f"/api/v1/projects/{project_id}", headers=auth(admin_token))
+    assert get_resp.status_code == 200
+    assert get_resp.json()["id"] == project_id
+
+    patch_resp = await client.patch(
+        f"/api/v1/projects/{project_id}",
+        json={"name": "Updated Project Name"},
+        headers=auth(admin_token),
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["name"] == "Updated Project Name"
+
+    del_resp = await client.delete(f"/api/v1/projects/{project_id}", headers=auth(admin_token))
+    assert del_resp.status_code == 204
+
+
+# ── Project member management ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_project_members(client: AsyncClient, admin_token: str, project_id: str):
+    list_resp = await client.get(f"/api/v1/projects/{project_id}/members", headers=auth(admin_token))
+    assert list_resp.status_code == 200
+    assert len(list_resp.json()) >= 1
+
+    second_email = f"member_{uuid.uuid4().hex[:6]}@test.com"
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={"email": second_email, "display_name": "Member", "password": "Pass1234"},
+    )
+    assert reg_resp.status_code == 201
+    second_user_id = reg_resp.json()["id"]
+
+    add_resp = await client.post(
+        f"/api/v1/projects/{project_id}/members",
+        json={"user_id": second_user_id, "role": "member"},
+        headers=auth(admin_token),
+    )
+    assert add_resp.status_code == 201
+
+    del_resp = await client.delete(
+        f"/api/v1/projects/{project_id}/members/{second_user_id}",
+        headers=auth(admin_token),
+    )
+    assert del_resp.status_code == 204
+
+
+# ── Users endpoints ───────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_user_list_and_update_me(client: AsyncClient, admin_token: str):
+    list_resp = await client.get("/api/v1/users/", headers=auth(admin_token))
+    assert list_resp.status_code == 200
+    assert len(list_resp.json()) >= 1
+
+    patch_resp = await client.patch(
+        "/api/v1/users/me",
+        json={"display_name": "Admin Updated"},
+        headers=auth(admin_token),
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["display_name"] == "Admin Updated"
+
+
+@pytest.mark.asyncio
+async def test_user_role_and_deactivate(client: AsyncClient, admin_token: str):
+    target_email = f"target_{uuid.uuid4().hex[:6]}@test.com"
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={"email": target_email, "display_name": "Target", "password": "Pass1234"},
+    )
+    assert reg_resp.status_code == 201
+    user_id = reg_resp.json()["id"]
+
+    role_resp = await client.patch(
+        f"/api/v1/users/{user_id}/role",
+        params={"role": "viewer"},
+        headers=auth(admin_token),
+    )
+    assert role_resp.status_code == 200
+    assert role_resp.json()["role"] == "viewer"
+
+    del_resp = await client.delete(f"/api/v1/users/{user_id}", headers=auth(admin_token))
+    assert del_resp.status_code == 204

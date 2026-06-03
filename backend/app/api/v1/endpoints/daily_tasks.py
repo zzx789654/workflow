@@ -102,6 +102,7 @@ async def update_daily_task(
         for lbl in body.labels:
             db.add(DailyTaskLabel(daily_task_id=task.id, label=lbl.strip()))
     await db.commit()
+    db.expire(task)
     loaded = await _load(task_id, current_user, db)
     return _to_out(loaded)
 
