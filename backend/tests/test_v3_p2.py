@@ -96,9 +96,7 @@ async def test_weekly_report_save(client: AsyncClient, admin_token: str):
 @pytest.mark.asyncio
 async def test_weekly_report_roundtrip(client: AsyncClient, admin_token: str):
     plan = "Complete all P2 features"
-    await client.post(
-        "/api/v1/reports/weekly", json={"next_week_plan": plan}, headers=auth(admin_token)
-    )
+    await client.post("/api/v1/reports/weekly", json={"next_week_plan": plan}, headers=auth(admin_token))
     resp = await client.get("/api/v1/reports/weekly", headers=auth(admin_token))
     assert resp.status_code == 200
     assert resp.json()["next_week_plan"] == plan
