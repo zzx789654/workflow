@@ -691,3 +691,57 @@ async def test_user_role_and_deactivate(client: AsyncClient, admin_token: str):
 
     del_resp = await client.delete(f"/api/v1/users/{user_id}", headers=auth(admin_token))
     assert del_resp.status_code == 204
+
+
+# ── Task list / move / comment ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_task_list(client: AsyncClient, admin_token: str, project_id: str, task_id: str):
+    resp = await client.get(f"/api/v1/projects/{project_id}/tasks/", headers=auth(admin_token))
+    assert resp.status_code == 200
+    items = resp.json()
+    assert isinstance(items, list)
+    assert any(t["id"] == task_id for t in items)
+
+
+@pytest.mark.asyncio
+async def test_task_move(client: AsyncClient, admin_token: str, project_id: str, task_id: str):
+    resp = await client.patch(
+        f"/api/v1/projects/{project_id}/tasks/{task_id}/move",
+        json={"status": "in_progress", "position": 1},
+        headers=auth(admin_token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_task_add_comment(client: AsyncClient, admin_token: str, project_id: str, task_id: str):
+    resp = await client.post(
+        f"/api/v1/projects/{project_id}/tasks/{task_id}/comments",
+        json={"content": "A test comment"},
+        headers=auth(admin_token),
+    )
+    assert resp.status_code == 201
+    assert resp.json()["content"] == "A test comment"
+
+
+@pytest.mark.asyncio
+async def test_notification_mark_read_404(client: AsyncClient, admin_token: str):
+    fake_id = str(uuid.uuid4())
+    resp = await client.patch(f"/api/v1/notifications/{fake_id}/read", headers=auth(admin_token))
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_milestone_list_with_data(client: AsyncClient, admin_token: str, project_id: str):
+    due = (date.today() + timedelta(days=10)).isoformat()
+    await client.post(
+        f"/api/v1/projects/{project_id}/milestones/",
+        json={"name": "Coverage Milestone", "due_date": due},
+        headers=auth(admin_token),
+    )
+    resp = await client.get(f"/api/v1/projects/{project_id}/milestones/", headers=auth(admin_token))
+    assert resp.status_code == 200
+    assert len(resp.json()) >= 1
