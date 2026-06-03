@@ -168,6 +168,8 @@ async def time_report(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if user_id and user_id != current_user.id and current_user.role.value != "admin":
+        raise HTTPException(status_code=403, detail="Cannot view another user's time report")
     filters = []
     if project_id:
         filters.append(Task.project_id == project_id)
