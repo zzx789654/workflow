@@ -32,9 +32,7 @@ async def _check_member(project_id: uuid.UUID, user: User, db: AsyncSession):
 
 
 async def _get_task(task_id: uuid.UUID, project_id: uuid.UUID, db: AsyncSession) -> Task:
-    result = await db.execute(
-        select(Task).where(Task.id == task_id, Task.project_id == project_id)
-    )
+    result = await db.execute(select(Task).where(Task.id == task_id, Task.project_id == project_id))
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -98,9 +96,7 @@ async def list_attachments(
     await _check_member(project_id, current_user, db)
     await _get_task(task_id, project_id, db)
     result = await db.execute(
-        select(TaskAttachment)
-        .where(TaskAttachment.task_id == task_id)
-        .order_by(TaskAttachment.created_at)
+        select(TaskAttachment).where(TaskAttachment.task_id == task_id).order_by(TaskAttachment.created_at)
     )
     return result.scalars().all()
 

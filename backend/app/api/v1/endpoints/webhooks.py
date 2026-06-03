@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,6 +66,7 @@ async def _get_webhook_for_user(webhook_id: uuid.UUID, user: User, db: AsyncSess
 
 
 # ── Project-scoped routes (used by frontend) ─────────────────────────────────
+
 
 @project_router.get("/", response_model=list[WebhookOut])
 async def list_project_webhooks(
@@ -145,6 +146,7 @@ async def test_project_webhook(
 
 
 # ── Global routes ─────────────────────────────────────────────────────────────
+
 
 @router.post("/", response_model=WebhookOut, status_code=201)
 async def create_webhook(
