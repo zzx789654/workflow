@@ -4,6 +4,7 @@ import uuid
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.security import hash_password
 from app.db.session import Base, get_db
@@ -15,7 +16,7 @@ TEST_DB_URL = os.environ.get(
     "postgresql+asyncpg://workflow:workflow_pass@localhost:5432/workflow_test",
 )
 
-engine = create_async_engine(TEST_DB_URL, echo=False)
+engine = create_async_engine(TEST_DB_URL, echo=False, poolclass=NullPool)
 TestSession = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
