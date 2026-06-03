@@ -1,3 +1,4 @@
+import os
 import uuid
 
 import pytest_asyncio
@@ -9,7 +10,10 @@ from app.db.session import Base, get_db
 from app.main import app
 from app.models.user import User, UserRole
 
-TEST_DB_URL = "postgresql+asyncpg://workflow:workflow_pass@localhost:5432/workflow_test"
+TEST_DB_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql+asyncpg://workflow:workflow_pass@localhost:5432/workflow_test",
+)
 
 engine = create_async_engine(TEST_DB_URL, echo=False)
 TestSession = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
