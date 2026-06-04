@@ -1,5 +1,6 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
+import { useThemeStore } from '../../stores/themeStore'
 import SearchBar from './SearchBar'
 import NotificationBell from './NotificationBell'
 
@@ -8,6 +9,12 @@ const navItems = [
   { to: '/daily', label: '日常作業', icon: '📋', end: false },
   { to: '/templates', label: '專案範本', icon: '🗂️', end: false },
   { to: '/calendar', label: '月曆', icon: '📅', end: false },
+  { to: '/time-report', label: '工時報表', icon: '⏱️', end: false },
+  { to: '/weekly-report', label: '週報', icon: '📊', end: false },
+  { to: '/workload', label: '工作量', icon: '⚖️', end: false },
+  { to: '/insights', label: '個人分析', icon: '📈', end: false },
+  { to: '/announcements', label: '公告板', icon: '📢', end: false },
+  { to: '/ai-assist', label: 'AI 建議', icon: '🤖', end: false },
 ]
 
 const bottomNavItems = [
@@ -18,6 +25,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const navigate = useNavigate()
+  const { dark, toggle: toggleDark } = useThemeStore()
 
   const handleLogout = () => {
     logout()
@@ -76,9 +84,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* 主內容 */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="bg-white border-b border-gray-200 px-6 py-2.5 flex items-center justify-end gap-3">
+        <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-2.5 flex items-center justify-end gap-3">
           <SearchBar />
           <NotificationBell />
+          <button
+            onClick={toggleDark}
+            className="text-lg text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white"
+            title={dark ? '切換淺色模式' : '切換暗色模式'}
+          >
+            {dark ? '☀️' : '🌙'}
+          </button>
         </header>
         <main className="flex-1 p-6 bg-gray-50 overflow-y-auto">
           {children}

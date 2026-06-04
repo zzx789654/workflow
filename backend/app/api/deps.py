@@ -1,9 +1,12 @@
+import logging
 import uuid
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.core.security import decode_token
 from app.db.session import get_db
@@ -23,10 +26,12 @@ async def get_current_user(
     token = credentials.credentials
     user_id = decode_token(token)
     if not user_id:
+        logger.warning("Auth failed: invalid token")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     try:
         uid = uuid.UUID(user_id)
     except ValueError:
+        logger.warning("Auth failed: malformed user_id in token")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     result = await db.execute(select(User).where(User.id == uid, User.is_active == True))
     user = result.scalar_one_or_none()

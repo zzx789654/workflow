@@ -1,11 +1,17 @@
-import { useEffect, useState } from 'react'
-import type { Task, SubTask, ProjectField, FieldValue, TaskDependency, User } from '../../types'
+import { useEffect, useRef, useState } from 'react'
+import type { Task, SubTask, ProjectField, FieldValue, TaskDependency, TimeLog, User } from '../../types'
 import { tasksApi } from '../../api/tasks'
 import { subtasksApi } from '../../api/subtasks'
 import { customFieldsApi } from '../../api/customFields'
 import { dependenciesApi } from '../../api/dependencies'
+import { timeLogsApi } from '../../api/timeLogs'
+import { reactionsApi } from '../../api/reactions'
+import { attachmentsApi } from '../../api/attachments'
+import { checkinsApi } from '../../api/checkins'
 import { projectsApi } from '../../api/projects'
 import { useTaskStore } from '../../stores/taskStore'
+
+const EMOJI_OPTIONS = ['👍', '❤️', '🎉', '🚀', '👀', '🔥', '✅', '💯']
 
 interface Props {
   task: Task
@@ -53,6 +59,25 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
   const [allTasks, setAllTasks] = useState<Task[]>([])
   const [depTargetId, setDepTargetId] = useState('')
   const [addingDep, setAddingDep] = useState(false)
+  // F11 附件
+  const [attachments, setAttachments] = useState<any[]>([])
+  const [uploadingFile, setUploadingFile] = useState(false)
+  // F14 Emoji 反應（comment_id -> summary）
+  const [reactionSummary, setReactionSummary] = useState<Record<string, Record<string, string[]>>>({})
+  // F15 Check-in
+  const [checkins, setCheckins] = useState<any[]>([])
+  const [checkinContent, setCheckinContent] = useState('')
+  const [checkinProgress, setCheckinProgress] = useState(0)
+  const [addingCheckin, setAddingCheckin] = useState(false)
+  // F07 時間追蹤
+  const [timeLogs, setTimeLogs] = useState<TimeLog[]>([])
+  const [runningLog, setRunningLog] = useState<TimeLog | null>(null)
+  const [timerElapsed, setTimerElapsed] = useState(0)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [manualMinutes, setManualMinutes] = useState('')
+  const [manualNote, setManualNote] = useState('')
+  const [addingManual, setAddingManual] = useState(false)
+  const [timerNote, setTimerNote] = useState('')
   // 日期編輯
   const [editingDates, setEditingDates] = useState(false)
   const [draftStart, setDraftStart] = useState(task.start_date ?? '')
@@ -95,9 +120,30 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
       setFieldValues(map)
     }).catch(() => {})
     dependenciesApi.list(projectId, task.id).then(r => setDeps(r.data)).catch(() => {})
+    timeLogsApi.list(projectId, task.id).then(r => {
+      setTimeLogs(r.data)
+      const running = r.data.find((l: TimeLog) => !l.ended_at) ?? null
+      setRunningLog(running)
+      if (running) {
+        const elapsed = Math.floor((Date.now() - new Date(running.started_at).getTime()) / 60000)
+        setTimerElapsed(elapsed)
+      }
+    }).catch(() => {})
+    attachmentsApi.list(projectId, task.id).then(r => setAttachments(r.data)).catch(() => {})
+    checkinsApi.list(projectId, task.id).then(r => setCheckins(r.data)).catch(() => {})
     setAllTasks(storeTasks.filter(t => t.id !== task.id))
     setSelectedAssignees(task.assignees.map(u => u.id))
   }, [task.id, projectId])
+
+  // 計時器 tick
+  useEffect(() => {
+    if (runningLog) {
+      timerRef.current = setInterval(() => {
+        setTimerElapsed(Math.floor((Date.now() - new Date(runningLog.started_at).getTime()) / 60000))
+      }, 30000)
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current) }
+  }, [runningLog])
 
   // ── 人員 ──────────────────────────────────
   const toggleAssignee = (id: string) =>
@@ -161,6 +207,88 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
       )
     } catch { } finally { setSavingFields(false) }
   }
+
+  // ── F11 附件 ─────────────────────────────
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingFile(true)
+    try {
+      const res = await attachmentsApi.upload(projectId, task.id, file)
+      setAttachments(a => [res.data, ...a])
+    } catch (err: any) {
+      alert(err?.response?.data?.detail ?? '上傳失敗')
+    } finally { setUploadingFile(false); e.target.value = '' }
+  }
+
+  const handleDeleteAttachment = async (id: string) => {
+    await attachmentsApi.delete(projectId, task.id, id)
+    setAttachments(a => a.filter(x => x.id !== id))
+  }
+
+  // ── F14 Emoji 反應 ──────────────────────
+  const handleToggleReaction = async (commentId: string, emoji: string) => {
+    const res = await reactionsApi.toggle(projectId, task.id, commentId, emoji)
+    setReactionSummary(s => ({ ...s, [commentId]: res.data.summary }))
+  }
+
+  const loadReactions = async (commentId: string) => {
+    if (reactionSummary[commentId]) return
+    const res = await reactionsApi.list(projectId, task.id, commentId)
+    const summary: Record<string, string[]> = {}
+    for (const r of res.data) summary[r.emoji] = [...(summary[r.emoji] ?? []), r.user_id]
+    setReactionSummary(s => ({ ...s, [commentId]: summary }))
+  }
+
+  // ── F15 Check-in ─────────────────────────
+  const handleAddCheckin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!checkinContent.trim()) return
+    setAddingCheckin(true)
+    try {
+      const res = await checkinsApi.create(projectId, task.id, checkinContent, checkinProgress)
+      setCheckins(c => [res.data, ...c])
+      setCheckinContent('')
+      setCheckinProgress(0)
+    } finally { setAddingCheckin(false) }
+  }
+
+  // ── F07 時間追蹤 ─────────────────────────
+  const handleStartTimer = async () => {
+    const res = await timeLogsApi.start(projectId, task.id, timerNote || undefined)
+    setRunningLog(res.data)
+    setTimerElapsed(0)
+    setTimeLogs(l => [res.data, ...l])
+    setTimerNote('')
+  }
+
+  const handleStopTimer = async () => {
+    if (!runningLog) return
+    const res = await timeLogsApi.stop(projectId, task.id, runningLog.id)
+    setRunningLog(null)
+    setTimeLogs(l => l.map(x => x.id === res.data.id ? res.data : x))
+  }
+
+  const handleManualLog = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const mins = parseInt(manualMinutes)
+    if (!mins || mins < 1) return
+    setAddingManual(true)
+    try {
+      const res = await timeLogsApi.manual(projectId, task.id, mins, manualNote || undefined)
+      setTimeLogs(l => [res.data, ...l])
+      setManualMinutes('')
+      setManualNote('')
+    } finally { setAddingManual(false) }
+  }
+
+  const handleDeleteLog = async (logId: string) => {
+    await timeLogsApi.delete(projectId, task.id, logId)
+    setTimeLogs(l => l.filter(x => x.id !== logId))
+  }
+
+  const totalMinutes = timeLogs.filter(l => l.ended_at).reduce((s, l) => s + (l.minutes ?? 0), 0)
+  const fmtMins = (m: number) => m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`
 
   // ── F06 依賴 ──────────────────────────────
   const handleAddDep = async (e: React.FormEvent) => {
@@ -534,6 +662,75 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
             )}
           </div>
 
+          {/* ── F07 時間追蹤 ─────────────────────────── */}
+          <div className="border-t border-gray-100 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-medium text-gray-500">時間追蹤</p>
+              {totalMinutes > 0 && (
+                <span className="text-xs text-primary-600 font-medium">累計 {fmtMins(totalMinutes)}</span>
+              )}
+            </div>
+
+            {/* 計時器區塊 */}
+            {runningLog ? (
+              <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-xl mb-3">
+                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
+                <span className="text-sm text-green-700 font-medium flex-1">計時中 {fmtMins(timerElapsed)}</span>
+                <button onClick={handleStopTimer} className="text-xs bg-red-500 text-white px-3 py-1 rounded-lg hover:bg-red-600">
+                  停止
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  className="input flex-1 text-sm"
+                  placeholder="備註（選填）"
+                  value={timerNote}
+                  onChange={e => setTimerNote(e.target.value)}
+                />
+                <button onClick={handleStartTimer} className="btn-primary text-sm px-3 whitespace-nowrap">
+                  ▶ 開始
+                </button>
+              </div>
+            )}
+
+            {/* 手動登錄 */}
+            <form onSubmit={handleManualLog} className="flex gap-2 mb-3">
+              <input
+                type="number" min={1} max={1440}
+                className="input w-20 text-sm"
+                placeholder="分鐘"
+                value={manualMinutes}
+                onChange={e => setManualMinutes(e.target.value)}
+              />
+              <input
+                type="text"
+                className="input flex-1 text-sm"
+                placeholder="備註（手動登錄）"
+                value={manualNote}
+                onChange={e => setManualNote(e.target.value)}
+              />
+              <button type="submit" disabled={addingManual || !manualMinutes} className="btn-secondary text-sm px-3 whitespace-nowrap">
+                {addingManual ? '…' : '+ 手動'}
+              </button>
+            </form>
+
+            {/* 工時記錄列表 */}
+            {timeLogs.filter(l => l.ended_at).length > 0 && (
+              <div className="space-y-1 max-h-36 overflow-y-auto">
+                {timeLogs.filter(l => l.ended_at).map(l => (
+                  <div key={l.id} className="flex items-center gap-2 text-xs text-gray-500 py-1 border-b border-gray-50">
+                    <span className="font-medium text-gray-700 w-10">{fmtMins(l.minutes)}</span>
+                    <span className="text-gray-400">{new Date(l.started_at).toLocaleDateString('zh-TW')}</span>
+                    {l.note && <span className="flex-1 truncate text-gray-500">{l.note}</span>}
+                    <button onClick={() => handleDeleteLog(l.id)} className="text-red-300 hover:text-red-500 ml-auto">✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* ── 評論 ────────────────────────────────── */}
           <div className="border-t border-gray-100 pt-4">
             <p className="text-xs font-medium text-gray-500 mb-3">評論 ({task.comments.length})</p>
@@ -547,6 +744,30 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
                     <p className="text-xs font-medium text-gray-700">{c.author.display_name}</p>
                     <p className="text-sm text-gray-600 whitespace-pre-wrap">{c.content}</p>
                     <p className="text-xs text-gray-400">{new Date(c.created_at).toLocaleString('zh-TW')}</p>
+                    {/* F14 Emoji 反應 */}
+                    <div className="flex flex-wrap items-center gap-1 mt-1">
+                      {Object.entries(reactionSummary[c.id] ?? {}).map(([emoji, users]) => (
+                        <button
+                          key={emoji}
+                          onClick={() => handleToggleReaction(c.id, emoji)}
+                          className="flex items-center gap-0.5 text-xs bg-gray-100 hover:bg-primary-50 border border-gray-200 rounded-full px-1.5 py-0.5"
+                        >
+                          <span>{emoji}</span>
+                          <span className="text-gray-600">{users.length}</span>
+                        </button>
+                      ))}
+                      <div className="flex gap-0.5 ml-1">
+                        {EMOJI_OPTIONS.map(e => (
+                          <button
+                            key={e}
+                            onClick={() => handleToggleReaction(c.id, e)}
+                            className="text-sm hover:scale-125 transition-transform opacity-40 hover:opacity-100"
+                          >
+                            {e}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -559,6 +780,73 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
                 onChange={e => setComment(e.target.value)}
               />
               <button type="submit" disabled={submitting} className="btn-primary px-3">送出</button>
+            </form>
+          </div>
+
+          {/* ── F11 附件 ────────────────────────────── */}
+          <div className="border-t border-gray-100 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-medium text-gray-500">附件（{attachments.length}）</p>
+              <label className={`text-xs cursor-pointer ${uploadingFile ? 'text-gray-400' : 'text-primary-600 hover:text-primary-800'}`}>
+                {uploadingFile ? '上傳中…' : '+ 上傳檔案'}
+                <input
+                  type="file"
+                  className="hidden"
+                  disabled={uploadingFile}
+                  onChange={handleFileUpload}
+                  accept="image/*,.pdf,.txt,.docx,.xlsx,.zip"
+                />
+              </label>
+            </div>
+            {attachments.length > 0 && (
+              <div className="space-y-1">
+                {attachments.map(a => (
+                  <div key={a.id} className="flex items-center gap-2 text-xs text-gray-600 py-1">
+                    <span className="flex-1 truncate">{a.filename}</span>
+                    <span className="text-gray-400">{Math.round(a.file_size / 1024)}KB</span>
+                    <a
+                      href={attachmentsApi.downloadUrl(projectId, task.id, a.id)}
+                      className="text-primary-600 hover:underline"
+                      download={a.filename}
+                    >下載</a>
+                    <button onClick={() => handleDeleteAttachment(a.id)} className="text-red-300 hover:text-red-500">✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── F15 Check-in ─────────────────────────── */}
+          <div className="border-t border-gray-100 pt-4">
+            <p className="text-xs font-medium text-gray-500 mb-3">每日 Check-in（{checkins.length}）</p>
+            {checkins.slice(0, 3).map(ci => (
+              <div key={ci.id} className="mb-2 p-2 bg-gray-50 rounded-lg text-sm">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-xs text-gray-400">{new Date(ci.checked_at).toLocaleDateString('zh-TW')}</span>
+                  <span className="text-xs bg-primary-100 text-primary-700 px-1.5 rounded-full">{ci.progress}%</span>
+                </div>
+                <p className="text-gray-700 text-xs">{ci.content}</p>
+              </div>
+            ))}
+            <form onSubmit={handleAddCheckin} className="space-y-2">
+              <textarea
+                className="input w-full text-sm min-h-[60px]"
+                placeholder="今天做了什麼？"
+                value={checkinContent}
+                onChange={e => setCheckinContent(e.target.value)}
+              />
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500">進度</label>
+                <input
+                  type="range" min={0} max={100} value={checkinProgress}
+                  className="flex-1 accent-primary-500"
+                  onChange={e => setCheckinProgress(+e.target.value)}
+                />
+                <span className="text-xs text-gray-600 w-8">{checkinProgress}%</span>
+                <button type="submit" disabled={addingCheckin || !checkinContent.trim()} className="btn-secondary text-xs px-3">
+                  {addingCheckin ? '…' : '提交'}
+                </button>
+              </div>
             </form>
           </div>
 

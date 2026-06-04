@@ -26,6 +26,10 @@ async def _check_member(project_id: uuid.UUID, user: User, db: AsyncSession):
     await require_project_membership(project_id, user, db, min_role=ProjectRole.viewer)
 
 
+async def _require_write(project_id: uuid.UUID, user: User, db: AsyncSession):
+    await require_project_membership(project_id, user, db, min_role=ProjectRole.member)
+
+
 class FieldCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     field_type: str = Field("text")
@@ -123,7 +127,7 @@ async def set_field_values(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await _check_member(project_id, current_user, db)
+    await _require_write(project_id, current_user, db)
     for fv in values:
         existing = await db.execute(
             select(TaskFieldValue).where(TaskFieldValue.task_id == task_id, TaskFieldValue.field_id == fv.field_id)

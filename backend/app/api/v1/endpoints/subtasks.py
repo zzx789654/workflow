@@ -27,6 +27,14 @@ class SubTaskCreate(BaseModel):
     description: str | None = None
 
 
+class SubTaskUpdate(BaseModel):
+    title: str | None = Field(None, min_length=1, max_length=500)
+    description: str | None = None
+    status: str | None = None
+    priority: str | None = None
+    progress: int | None = Field(None, ge=0, le=100)
+
+
 class SubTaskOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
@@ -97,7 +105,7 @@ async def update_subtask(
     project_id: uuid.UUID,
     task_id: uuid.UUID,
     subtask_id: uuid.UUID,
-    body: dict,
+    body: SubTaskUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -105,10 +113,8 @@ async def update_subtask(
     subtask = await db.get(Task, subtask_id)
     if not subtask or str(subtask.parent_task_id) != str(task_id):
         raise HTTPException(status_code=404, detail="Subtask not found")
-    allowed = {"title", "description", "status", "priority", "progress"}
-    for k, v in body.items():
-        if k in allowed:
-            setattr(subtask, k, v)
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(subtask, k, v)
     await db.flush()
     await _update_parent_counts(task_id, db)
     await db.commit()

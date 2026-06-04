@@ -59,6 +59,8 @@ class Task(Base):
     parent_task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True)
     subtask_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     subtask_done_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    recurrence_rule: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    recurrence_parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="tasks")
     milestone: Mapped["Milestone | None"] = relationship(back_populates="tasks")

@@ -1,3 +1,76 @@
+## [2026-06-04] 輪結 Round 8 — V3 P1 F07 補完 + P2/P3 全功能實作
+
+- 現況：G1✅ G2✅ G3✅ G4✅；G5/G6 待 Docker 環境執行
+- PM：F07（時間追蹤前端）補完；P2（F08-F15）、P3（F16-F24，除 F21 延後）全部實作
+- Dev：後端新增 13 個 endpoint 模組（weekly_reports, workload, bulk_tasks, reactions, attachments, checkins, recurring, announcements, webhooks_out, public_share, health_score, insights, ai_assist）；DB migration 004（9 張新表）；Task model 加 recurrence 欄位
+- 前端：新增 8 個頁面（TimeReport, WeeklyReport, Workload, Insights, Announcements, AISuggestions, PublicProject + export utils）；TaskDetailPanel 新增 F07/F11/F14/F15 四個區塊；ProjectPage 加視圖切換 + TaskListView
+- Sec：後端語法全部 AST 驗證通過；無新 Critical/High 弱點；F11 附件 10MB 限制 + MIME 白名單；F18 webhook httpx 10s timeout；F22 share link token 用 secrets.token_urlsafe
+- QA：靜態審查通過；等 Docker 環境執行 E2E
+- 退回事件：weekly_reports.py 第 93 行 `*[] or []` 在 list literal 中是 SyntaxError → 改為先建立 list 變數再用 `+` 串接
+
+### 教訓 / 準則
+
+**教訓 38：Python list literal 不能用 `*expr or fallback` 展開**
+- 情境：`[..., *[item for item in x] or ["默認"]]` 在 Python 3.11 以下是 SyntaxError
+- 準則：改為先 `done_lines = [f"- {t.title}" for t in tasks] or ["默認"]`，再在 list 外用 `+` 串接
+- **How to apply：** 任何需要「空列表有預設值」的情境，先用變數再串接
+
+**教訓 39：前端 ThemeStore 在 `main.tsx` module 頂層呼叫 `init()` 初始化**
+- 情境：暗色模式需在 React render 前就設定 `document.documentElement.classList`，否則會閃爍
+- 準則：在 `ReactDOM.createRoot` 之前呼叫 `useThemeStore.getState().init()`；Zustand store 可在 React 外部呼叫 `getState()`
+- **How to apply：** 任何需要在 HTML render 前就生效的全域 CSS class，走同樣模式
+
+**教訓 40：TaskDetailPanel 的 API 同時加載超過 6 個可能造成慢啟動**
+- 情境：本輪 TaskDetailPanel 新增了 attachments + checkins API 呼叫，每次 task 詳情開啟都會同時打 8+ 個 API
+- 準則：考慮把非核心資料（attachments、checkins、timeLogs）改為懶加載（展開時才 fetch），降低初始加載壓力
+
+### 過程原始輸出位置
+- 後端新檔案：`backend/app/api/v1/endpoints/` 13 個新模組
+- 前端新檔案：`frontend/src/pages/` 8 個新頁面
+- DB migration：`backend/alembic/versions/004_v3_p2_p3_features.py`
+- Models：`backend/app/models/v4_models.py`
+
+---
+
+## [2026-06-04] 輪結 Round 7 — Secure SDLC 安全深審 + 8 項修補
+
+- 現況：G1✅ G2✅ G3✅ G4✅ — 本輪全部關卡通過
+- PM：對 V3 P1（F01~F07 + UX 改善）已上線代碼做完整三角色安全審查
+- Dev/Sec：Critical_0 / High_0 / Medium_4→0 / Low_3→0；漏洞密度 0/KLOC（修補後）；達標 ✓
+- QA：回歸 Pass 10/10；Major 缺陷 BUG-001 已關閉；Critical/Major = 0；達標 ✓
+- 退回事件：G4 初判未達標（BUG-001 Major + 7 finding）→ 退回 DevSecOps 修補後回 QA 回歸通過
+
+### 教訓 / 準則
+
+**教訓 33：report/aggregate 端點必須包含資源所有者驗證**
+- 情境：`/time-logs/report` 只做了 `get_current_user` 卻沒驗證 `project_id` 是否為使用者所屬專案，任何登入用戶可查他人工時
+- 準則：所有以 `project_id` 為過濾條件的報表 API，必須在過濾前先做 `require_project_membership`；無 project_id 篩選時，限制查詢範圍在用戶可見的 project_ids 內
+- **Why：** aggregate/report 端點因為不是標準 CRUD，容易漏掉 membership 守衛
+
+**教訓 34：refresh/access token 必須在 decode 層分離驗證**
+- 情境：`decode_token()` 未驗證 `type` 欄位，導致 access token 可被當 refresh token 使用（token 混用）
+- 準則：`decode_token` 加 `expected_type` 參數；產生 refresh token 時一定寫入 `{"type": "refresh"}`；呼叫端指定 expected_type
+- **How to apply：** 凡新增的 token 類型（如 email verification token）都走同一參數控制
+
+**教訓 35：生產環境啟動時應在 module 載入階段驗證安全設定**
+- 情境：`SECRET_KEY` 有弱預設值，未設定 `.env` 的生產部署會以弱金鑰靜默啟動
+- 準則：`settings.validate_production_secrets()` 在 `settings = Settings()` 後立即呼叫；在 module 頂層執行，讓錯誤在 import 時就爆出而非等請求進來
+- **How to apply：** 同理適用於資料庫連線字串、外部 API Key 等關鍵設定
+
+**教訓 36：slowapi 在 reverse proxy 後需信任 X-Forwarded-For**
+- 情境：Docker Compose + nginx 部署時，所有請求 IP 都會是 nginx container IP，速率限制形同虛設
+- 準則：使用 slowapi + uvicorn 時，加 `--proxy-headers --forwarded-allow-ips='*'`（或設定 trusted proxy）；或改用 `get_remote_address` 之外的 key function
+- **How to apply：** 下次部署 Docker 驗證時，確認 rate limit 行為
+
+**教訓 37：自訂欄位「寫入」應至少需 member 角色，不可只需 viewer**
+- 情境：viewer 是只讀角色，`set_field_values` 卻呼叫 `_check_member`（viewer），允許 viewer 寫入資料
+- 準則：凡是寫入操作（PUT/POST/PATCH/DELETE），最低角色為 member；viewer 僅可 GET
+
+### 過程原始輸出位置
+- 安全審查完整 Finding 清單：`待修改.md` Round 7 修補清單
+
+---
+
 ## [2026-06-03] PM UX 加速改善 — 4 項 UX 改動上線
 
 - UX-01：KanbanColumn 底部快速輸入框（Enter 連續建立，Esc 取消）

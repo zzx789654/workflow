@@ -170,28 +170,55 @@ async def time_report(
 ):
     filters = []
     if project_id:
+        # Verify caller is a member of the requested project
+        if current_user.role.value != "admin":
+            membership = await db.execute(
+                select(ProjectMember).where(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.user_id == current_user.id,
+                )
+            )
+            if not membership.scalar_one_or_none():
+                raise HTTPException(status_code=403, detail="Not a project member")
         filters.append(Task.project_id == project_id)
+    else:
+        # Without a project filter, restrict to projects the user belongs to
+        if current_user.role.value != "admin":
+            proj_result = await db.execute(
+                select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id)
+            )
+            visible_ids = [r[0] for r in proj_result.all()]
+            filters.append(Task.project_id.in_(visible_ids))
     if user_id:
         filters.append(TimeLog.user_id == user_id)
     else:
         filters.append(TimeLog.user_id == current_user.id)
 
+    from app.models.project import Project
+    from app.models.user import User as UserModel
+
     result = await db.execute(
         select(
             TimeLog.user_id,
+            UserModel.display_name.label("user_name"),
             Task.project_id,
+            Project.name.label("project_name"),
             func.sum(TimeLog.minutes).label("total_minutes"),
         )
         .join(Task, TimeLog.task_id == Task.id)
+        .join(UserModel, TimeLog.user_id == UserModel.id)
+        .join(Project, Task.project_id == Project.id)
         .where(and_(*filters) if filters else True)
-        .group_by(TimeLog.user_id, Task.project_id)
+        .group_by(TimeLog.user_id, UserModel.display_name, Task.project_id, Project.name)
     )
     rows = result.all()
     return {
         "report": [
             {
                 "user_id": str(r.user_id),
+                "user_name": r.user_name,
                 "project_id": str(r.project_id),
+                "project_name": r.project_name,
                 "total_minutes": r.total_minutes,
                 "total_hours": round(r.total_minutes / 60, 1),
             }

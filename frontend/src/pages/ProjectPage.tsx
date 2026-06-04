@@ -8,6 +8,7 @@ import { useProjectWs } from '../hooks/useProjectWs'
 import KanbanBoard from '../components/kanban/KanbanBoard'
 import KanbanFilterBar, { applyKanbanFilter, type KanbanFilter } from '../components/kanban/KanbanFilterBar'
 import TaskDetailPanel from '../components/project/TaskDetailPanel'
+import TaskListView from '../components/project/TaskListView'
 import CreateTaskModal from '../components/project/CreateTaskModal'
 import MilestonesTab from '../components/project/MilestonesTab'
 import MembersTab from '../components/project/MembersTab'
@@ -22,6 +23,7 @@ export default function ProjectPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [savingTemplate, setSavingTemplate] = useState(false)
   const [filter, setFilter] = useState<KanbanFilter>({ assigneeId: '', priority: '', status: '', keyword: '' })
+  const [viewMode, setViewMode] = useState<'board' | 'list'>('board')
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const tasks = useTaskStore((s) => s.tasks)
   useProjectWs(projectId)
@@ -90,9 +92,36 @@ export default function ProjectPage() {
                   filter={filter}
                   onChange={setFilter}
                 />
-                <button onClick={() => setShowCreate(true)} className="btn-primary flex-shrink-0">+ 新增任務</button>
+                <div className="flex items-center gap-2">
+                  {/* 視圖切換 */}
+                  <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+                    <button
+                      className={`px-3 py-1.5 ${viewMode === 'board' ? 'bg-primary-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                      onClick={() => setViewMode('board')}
+                      title="看板視圖"
+                    >
+                      ▤ 看板
+                    </button>
+                    <button
+                      className={`px-3 py-1.5 ${viewMode === 'list' ? 'bg-primary-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                      onClick={() => setViewMode('list')}
+                      title="列表視圖"
+                    >
+                      ≡ 列表
+                    </button>
+                  </div>
+                  <button onClick={() => setShowCreate(true)} className="btn-primary flex-shrink-0">+ 新增任務</button>
+                </div>
               </div>
-              <KanbanBoard projectId={projectId} onTaskClick={setSelectedTask} filterFn={(t) => applyKanbanFilter([t], filter).length > 0} />
+              {viewMode === 'board' ? (
+                <KanbanBoard projectId={projectId} onTaskClick={setSelectedTask} filterFn={(t) => applyKanbanFilter([t], filter).length > 0} />
+              ) : (
+                <TaskListView
+                  tasks={applyKanbanFilter(tasks, filter)}
+                  projectId={projectId}
+                  onSelect={setSelectedTask}
+                />
+              )}
             </div>
           }
         />
