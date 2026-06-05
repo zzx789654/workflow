@@ -32,7 +32,7 @@ const SUBTASK_STATUS_COLORS: Record<string, string> = {
   done: 'bg-green-100 text-green-600',
 }
 
-function nextSubtaskStatus(current: string): string {
+function nextSubtaskStatus(current: string): typeof SUBTASK_STATUSES[number] {
   const idx = SUBTASK_STATUSES.indexOf(current as typeof SUBTASK_STATUSES[number])
   return SUBTASK_STATUSES[(idx + 1) % SUBTASK_STATUSES.length]
 }
