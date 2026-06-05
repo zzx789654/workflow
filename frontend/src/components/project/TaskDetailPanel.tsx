@@ -3,6 +3,7 @@ import type { Task, SubTask, ProjectField, FieldValue, TaskDependency, TimeLog, 
 import { tasksApi } from '../../api/tasks'
 import { subtasksApi } from '../../api/subtasks'
 import { customFieldsApi } from '../../api/customFields'
+import { recurringApi, type RecurrenceRule } from '../../api/recurring'
 import { dependenciesApi } from '../../api/dependencies'
 import { timeLogsApi } from '../../api/timeLogs'
 import { reactionsApi } from '../../api/reactions'
@@ -97,6 +98,12 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
       setEditingDates(false)
     } finally { setSavingDates(false) }
   }
+
+  // F10 重複排程
+  const [recurrenceRule, setRecurrenceRule] = useState<RecurrenceRule | ''>(
+    (task.recurrence_rule as RecurrenceRule) ?? ''
+  )
+  const [savingRecurrence, setSavingRecurrence] = useState(false)
 
   // 複製
   const [copying, setCopying] = useState(false)
@@ -331,6 +338,31 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
     if (!confirm('確定要刪除此任務？')) return
     await deleteTask(projectId, task.id)
     onClose()
+  }
+
+  // ── F10 重複排程 ──────────────────────────
+  const handleSaveRecurrence = async () => {
+    setSavingRecurrence(true)
+    try {
+      if (recurrenceRule) {
+        await recurringApi.set(projectId, task.id, recurrenceRule)
+      } else {
+        await recurringApi.remove(projectId, task.id)
+      }
+    } catch (err: any) {
+      alert(err?.response?.data?.detail ?? '儲存失敗')
+    } finally { setSavingRecurrence(false) }
+  }
+
+  const handleSpawnNext = async () => {
+    if (!confirm('確定要立即產生下一筆重複任務？')) return
+    try {
+      await recurringApi.spawnNext(projectId, task.id)
+      alert('已產生下一筆任務！')
+      fetchTasks(projectId)
+    } catch (err: any) {
+      alert(err?.response?.data?.detail ?? '產生失敗')
+    }
   }
 
   return (
@@ -848,6 +880,39 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
                 </button>
               </div>
             </form>
+          </div>
+
+          {/* ── F10 重複排程 ─────────────────────── */}
+          <div className="border-t border-gray-100 pt-4">
+            <p className="text-xs font-medium text-gray-500 mb-2">重複排程</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                className="input text-sm flex-1"
+                value={recurrenceRule}
+                onChange={e => setRecurrenceRule(e.target.value as RecurrenceRule | '')}
+              >
+                <option value="">不重複</option>
+                <option value="daily">每天</option>
+                <option value="weekly">每週</option>
+                <option value="monthly">每月</option>
+              </select>
+              <button
+                onClick={handleSaveRecurrence}
+                disabled={savingRecurrence}
+                className="btn-secondary text-xs px-3"
+              >
+                {savingRecurrence ? '…' : '儲存'}
+              </button>
+              {recurrenceRule && (
+                <button
+                  onClick={handleSpawnNext}
+                  className="text-xs text-blue-500 hover:text-blue-700"
+                  title="立即產生下一筆重複任務"
+                >
+                  ▶ 產生下一筆
+                </button>
+              )}
+            </div>
           </div>
 
           {/* ── 複製 / 刪除 ─────────────────────────── */}

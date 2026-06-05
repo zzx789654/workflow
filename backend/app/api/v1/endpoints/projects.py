@@ -171,7 +171,8 @@ async def update_member_role(
     if user_id == current_user.id:
         raise HTTPException(status_code=400, detail="無法修改自己的角色")
     result = await db.execute(
-        select(ProjectMember).options(selectinload(ProjectMember.user))
+        select(ProjectMember)
+        .options(selectinload(ProjectMember.user))
         .where(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
     )
     member = result.scalar_one_or_none()

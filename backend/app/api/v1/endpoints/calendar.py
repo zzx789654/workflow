@@ -46,8 +46,7 @@ async def get_calendar_events(
 
     # Project tasks：顯示有 due_date 或 start_date / end_date 落在本月的任務
     from sqlalchemy import or_
-    from sqlalchemy.orm import selectinload
-    from app.models.project import Project
+
     subq = select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id)
     task_q = (
         select(Task)

@@ -6,12 +6,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-logger = logging.getLogger(__name__)
+from app.core.security import decode_token  # noqa: E402
+from app.db.session import get_db  # noqa: E402
+from app.models.project import ProjectMember, ProjectRole  # noqa: E402
+from app.models.user import User, UserRole  # noqa: E402
 
-from app.core.security import decode_token
-from app.db.session import get_db
-from app.models.project import ProjectMember, ProjectRole
-from app.models.user import User, UserRole
+logger = logging.getLogger(__name__)
 
 bearer = HTTPBearer()
 
@@ -83,10 +83,10 @@ async def require_project_membership(
         raise HTTPException(status_code=403, detail="你不是此專案的成員")
     if _PROJECT_ROLE_ORDER.index(role) < _PROJECT_ROLE_ORDER.index(min_role):
         role_labels = {
-            ProjectRole.viewer:  "檢視者",
-            ProjectRole.member:  "成員",
+            ProjectRole.viewer: "檢視者",
+            ProjectRole.member: "成員",
             ProjectRole.manager: "管理者",
-            ProjectRole.owner:   "擁有者",
+            ProjectRole.owner: "擁有者",
         }
         raise HTTPException(
             status_code=403,

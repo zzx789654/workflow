@@ -66,6 +66,8 @@ class TaskOut(BaseModel):
     progress: int = 0
     subtask_count: int = 0
     subtask_done_count: int = 0
+    recurrence_rule: str | None = None
+    recurrence_parent_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
     assignees: list[UserOut] = []
@@ -81,15 +83,31 @@ class TaskOut(BaseModel):
             return data
         # Build a plain dict from ORM object
         result: dict = {}
-        for col in ["id","project_id","milestone_id","parent_task_id","title","description",
-                    "status","priority","position","due_date","start_date","end_date",
-                    "actual_end_date","progress","subtask_count","subtask_done_count",
-                    "created_at","updated_at"]:
+        for col in [
+            "id",
+            "project_id",
+            "milestone_id",
+            "parent_task_id",
+            "title",
+            "description",
+            "status",
+            "priority",
+            "position",
+            "due_date",
+            "start_date",
+            "end_date",
+            "actual_end_date",
+            "progress",
+            "subtask_count",
+            "subtask_done_count",
+            "recurrence_rule",
+            "recurrence_parent_id",
+            "created_at",
+            "updated_at",
+        ]:
             result[col] = getattr(data, col, None)
         # Expand TaskAssignee → User
-        result["assignees"] = [
-            getattr(a, "user", a) for a in getattr(data, "assignees", [])
-        ]
+        result["assignees"] = [getattr(a, "user", a) for a in getattr(data, "assignees", [])]
         result["comments"] = list(getattr(data, "comments", []))
         return result
 

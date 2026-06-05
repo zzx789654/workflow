@@ -1,4 +1,5 @@
 """F12 — 工作量視圖"""
+
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/workload", tags=["workload"])
 
 @router.get("")
 async def get_workload(
-    period: str = Query("week", regex="^(week|month)$"),
+    period: str = Query("week", pattern="^(week|month)$"),
     project_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -41,9 +42,7 @@ async def get_workload(
         res = await db.execute(select(Project.id))
         proj_ids = [r[0] for r in res.all()]
     else:
-        res = await db.execute(
-            select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id)
-        )
+        res = await db.execute(select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id))
         proj_ids = [r[0] for r in res.all()]
 
     # Task count per assignee within date range
@@ -78,7 +77,9 @@ async def get_workload(
         .where(
             and_(
                 Task.project_id.in_(proj_ids),
-                TimeLog.started_at >= datetime.combine(start, datetime.min.time()).replace(tzinfo=UTC) if start else True,
+                TimeLog.started_at >= datetime.combine(start, datetime.min.time()).replace(tzinfo=UTC)
+                if start
+                else True,
             )
         )
         .group_by(TimeLog.user_id)

@@ -1,4 +1,5 @@
 """F14 — Emoji 反應"""
+
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.project import ProjectMember
-from app.models.task import TaskComment
 from app.models.user import User
 from app.models.v4_models import CommentReaction
 from app.websocket.manager import manager
@@ -55,9 +55,7 @@ async def list_reactions(
     current_user: User = Depends(get_current_user),
 ):
     await _check_member(project_id, current_user, db)
-    res = await db.execute(
-        select(CommentReaction).where(CommentReaction.comment_id == comment_id)
-    )
+    res = await db.execute(select(CommentReaction).where(CommentReaction.comment_id == comment_id))
     return res.scalars().all()
 
 
@@ -102,19 +100,20 @@ async def toggle_reaction(
         action = "added"
 
     # Broadcast via WS
-    await manager.broadcast(str(project_id), {
-        "type": "reaction_updated",
-        "task_id": str(task_id),
-        "comment_id": str(comment_id),
-        "user_id": str(current_user.id),
-        "emoji": body.emoji,
-        "action": action,
-    })
+    await manager.broadcast(
+        str(project_id),
+        {
+            "type": "reaction_updated",
+            "task_id": str(task_id),
+            "comment_id": str(comment_id),
+            "user_id": str(current_user.id),
+            "emoji": body.emoji,
+            "action": action,
+        },
+    )
 
     # Return summary
-    res = await db.execute(
-        select(CommentReaction).where(CommentReaction.comment_id == comment_id)
-    )
+    res = await db.execute(select(CommentReaction).where(CommentReaction.comment_id == comment_id))
     reactions = res.scalars().all()
     summary: dict[str, list[str]] = {}
     for r in reactions:

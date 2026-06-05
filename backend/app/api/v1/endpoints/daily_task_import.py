@@ -2,10 +2,10 @@ import io
 from datetime import date, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Alignment, Font, PatternFill
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -17,20 +17,24 @@ router = APIRouter(prefix="/daily-tasks", tags=["daily-tasks"])
 
 # Excel 欄位定義（欄位順序 / 名稱 / 必填）
 _COLUMNS = [
-    ("標題",       "title",        True),
-    ("日期",        "date",         True),   # yyyy-mm-dd
-    ("狀態",        "status",       False),  # pending/in_progress/done/cancelled
-    ("進度%",       "progress",     False),  # 0-100
-    ("標籤",        "labels",       False),  # 逗號分隔
-    ("說明",        "description",  False),
-    ("工作分鐘數",   "work_minutes", False),  # 整數
+    ("標題", "title", True),
+    ("日期", "date", True),  # yyyy-mm-dd
+    ("狀態", "status", False),  # pending/in_progress/done/cancelled
+    ("進度%", "progress", False),  # 0-100
+    ("標籤", "labels", False),  # 逗號分隔
+    ("說明", "description", False),
+    ("工作分鐘數", "work_minutes", False),  # 整數
 ]
 
 _STATUS_MAP = {
-    "待辦": "pending", "pending": "pending",
-    "進行中": "in_progress", "in_progress": "in_progress",
-    "完成": "done", "done": "done",
-    "已取消": "cancelled", "cancelled": "cancelled",
+    "待辦": "pending",
+    "pending": "pending",
+    "進行中": "in_progress",
+    "in_progress": "in_progress",
+    "完成": "done",
+    "done": "done",
+    "已取消": "cancelled",
+    "cancelled": "cancelled",
 }
 
 
@@ -73,7 +77,7 @@ def _parse_row(row: tuple[Any, ...], row_idx: int) -> dict | str:
 
     # 標籤
     raw_labels = str(cells[4]).strip() if cells[4] is not None else ""
-    labels = [l.strip() for l in raw_labels.split(",") if l.strip()] if raw_labels else []
+    labels = [lbl.strip() for lbl in raw_labels.split(",") if lbl.strip()] if raw_labels else []
 
     # 說明
     description = str(cells[5]).strip() if cells[5] is not None else None
@@ -125,7 +129,7 @@ async def download_template(_: User = Depends(get_current_user)):
     examples = [
         ["每日站立會議", "2026-06-03", "完成", 100, "開發, 會議", "15 分鐘快速同步", 15],
         ["撰寫技術文件", "2026-06-03", "進行中", 50, "文件", "API 文件更新", 60],
-        ["Code Review",  "2026-06-04", "待辦",   0,  "開發", "",               0],
+        ["Code Review", "2026-06-04", "待辦", 0, "開發", "", 0],
     ]
     for r_idx, row in enumerate(examples, 2):
         for c_idx, val in enumerate(row, 1):
@@ -134,14 +138,14 @@ async def download_template(_: User = Depends(get_current_user)):
     # 備註頁
     ws2 = wb.create_sheet("填寫說明")
     notes = [
-        ["欄位",     "必填", "格式說明"],
-        ["標題",     "是",   "任意文字，最多 500 字"],
-        ["日期",     "是",   "yyyy-mm-dd，例：2026-06-03"],
-        ["狀態",     "否",   "待辦 / 進行中 / 完成 / 已取消（預設：待辦）"],
-        ["進度%",    "否",   "0 ~ 100 整數（預設：0）"],
-        ["標籤",     "否",   "以逗號分隔，例：開發, 會議"],
-        ["說明",     "否",   "任意文字"],
-        ["工作分鐘數","否",  "整數（預設：0）"],
+        ["欄位", "必填", "格式說明"],
+        ["標題", "是", "任意文字，最多 500 字"],
+        ["日期", "是", "yyyy-mm-dd，例：2026-06-03"],
+        ["狀態", "否", "待辦 / 進行中 / 完成 / 已取消（預設：待辦）"],
+        ["進度%", "否", "0 ~ 100 整數（預設：0）"],
+        ["標籤", "否", "以逗號分隔，例：開發, 會議"],
+        ["說明", "否", "任意文字"],
+        ["工作分鐘數", "否", "整數（預設：0）"],
     ]
     for r_idx, row in enumerate(notes, 1):
         for c_idx, val in enumerate(row, 1):

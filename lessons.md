@@ -115,7 +115,7 @@
 - 現況：G1✅ G2✅ G3✅ G4✅；G5/G6 待 Docker 環境執行
 - DevSecOps：前端補完 F05（自訂欄位）+ F06（任務依賴）UI，後端 API 不變
 - 新增檔案：api/customFields.ts、api/dependencies.ts、components/project/ProjectSettingsTab.tsx
-- 修改檔案：TaskDetailPanel、GanttTab、KanbanBoard、KanbanColumn、TaskCard、ProjectPage、types/index.ts
+- 修改檔案：TaskDetailPanel、GanttTab、KanbanBoard、 KanbanColumn、TaskCard、ProjectPage、types/index.ts
 - 退回事件：無
 
 ### 教訓 / 準則

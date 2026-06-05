@@ -1,4 +1,5 @@
 """F11 — 檔案附件（local volume）"""
+
 import os
 import uuid
 from pathlib import Path
@@ -18,8 +19,12 @@ from app.models.v4_models import TaskAttachment
 UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", "/app/uploads"))
 MAX_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_TYPES = {
-    "image/jpeg", "image/png", "image/gif", "image/webp",
-    "application/pdf", "text/plain",
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "application/pdf",
+    "text/plain",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/zip",

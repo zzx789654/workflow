@@ -6,9 +6,15 @@ from app.models.template import ProjectTemplate, TemplateTask
 from app.models.user import User
 from app.models.v3_models import Notification, ProjectField, TaskDependency, TaskFieldValue, TimeLog
 from app.models.v4_models import (
-    Announcement, AnnouncementRead, CommentReaction, ProjectHealthScore,
-    ProjectShareLink, TaskAttachment, TaskCheckin,
-    WebhookDelivery, WebhookEndpoint,
+    Announcement,
+    AnnouncementRead,
+    CommentReaction,
+    ProjectHealthScore,
+    ProjectShareLink,
+    TaskAttachment,
+    TaskCheckin,
+    WebhookDelivery,
+    WebhookEndpoint,
 )
 
 __all__ = [

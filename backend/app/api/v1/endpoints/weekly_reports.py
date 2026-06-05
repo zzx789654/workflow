@@ -1,9 +1,9 @@
 """F08 — 週報自動生成"""
-import uuid
+
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -30,9 +30,7 @@ async def get_weekly_report(
         proj_res = await db.execute(select(Project.id))
         proj_ids = [r[0] for r in proj_res.all()]
     else:
-        proj_res = await db.execute(
-            select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id)
-        )
+        proj_res = await db.execute(select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id))
         proj_ids = [r[0] for r in proj_res.all()]
 
     # Completed this week
@@ -52,7 +50,8 @@ async def get_weekly_report(
 
     # Overdue (not done, past due_date)
     overdue_res = await db.execute(
-        select(Task).where(
+        select(Task)
+        .where(
             and_(
                 Task.project_id.in_(proj_ids),
                 Task.status != "done",
@@ -65,7 +64,8 @@ async def get_weekly_report(
 
     # In-progress
     wip_res = await db.execute(
-        select(Task).where(
+        select(Task)
+        .where(
             and_(
                 Task.project_id.in_(proj_ids),
                 Task.status.in_(["in_progress", "review"]),

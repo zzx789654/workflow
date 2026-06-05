@@ -111,15 +111,17 @@ async def replace_template_tasks(
     await db.flush()
     # 重建新任務
     for i, t in enumerate(tasks):
-        db.add(TemplateTask(
-            template_id=tmpl.id,
-            title=t.title,
-            description=t.description,
-            priority=t.priority,
-            day_offset_start=t.day_offset_start,
-            day_offset_end=t.day_offset_end,
-            position=i,
-        ))
+        db.add(
+            TemplateTask(
+                template_id=tmpl.id,
+                title=t.title,
+                description=t.description,
+                priority=t.priority,
+                day_offset_start=t.day_offset_start,
+                day_offset_end=t.day_offset_end,
+                position=i,
+            )
+        )
     await db.commit()
     db.expire_all()  # 清除 SQLAlchemy identity map，強制重新查詢
     return await _load_template(template_id, db)

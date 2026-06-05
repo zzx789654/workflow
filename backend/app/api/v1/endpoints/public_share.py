@@ -1,9 +1,10 @@
 """F22 — 訪客分享連結 Public Share"""
+
 import secrets
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,9 +56,7 @@ async def list_share_links(
     current_user: User = Depends(get_current_user),
 ):
     await _check_manager(project_id, current_user, db)
-    res = await db.execute(
-        select(ProjectShareLink).where(ProjectShareLink.project_id == project_id)
-    )
+    res = await db.execute(select(ProjectShareLink).where(ProjectShareLink.project_id == project_id))
     return res.scalars().all()
 
 
@@ -121,9 +120,7 @@ async def public_project_view(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    tasks_res = await db.execute(
-        select(Task).where(Task.project_id == link.project_id).order_by(Task.position)
-    )
+    tasks_res = await db.execute(select(Task).where(Task.project_id == link.project_id).order_by(Task.position))
     tasks = tasks_res.scalars().all()
 
     return {

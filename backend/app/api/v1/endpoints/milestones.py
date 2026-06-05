@@ -3,9 +3,9 @@
 每當專案中任何任務狀態變為 done，自動建立一筆 milestone_log。
 也提供手動更新工時與備註的介面。
 """
+
 import uuid
 from datetime import UTC, datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -29,20 +29,20 @@ async def _check_member(project_id: uuid.UUID, user: User, db: AsyncSession):
 class MilestoneLogOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
-    task_id: Optional[uuid.UUID]
+    task_id: uuid.UUID | None
     task_title: str
-    completed_by: Optional[uuid.UUID]
-    completed_by_name: Optional[str]
+    completed_by: uuid.UUID | None
+    completed_by_name: str | None
     work_minutes: int
-    note: Optional[str]
+    note: str | None
     completed_at: datetime
 
     model_config = {"from_attributes": True}
 
 
 class MilestoneLogUpdate(BaseModel):
-    work_minutes: Optional[int] = Field(None, ge=0)
-    note: Optional[str] = Field(None, max_length=1000)
+    work_minutes: int | None = Field(None, ge=0)
+    note: str | None = Field(None, max_length=1000)
 
 
 # ── 列出完成記錄 ───────────────────────────────────────────────
@@ -54,9 +54,7 @@ async def list_milestone_logs(
 ):
     await _check_member(project_id, current_user, db)
     result = await db.execute(
-        select(MilestoneLog)
-        .where(MilestoneLog.project_id == project_id)
-        .order_by(MilestoneLog.completed_at.desc())
+        select(MilestoneLog).where(MilestoneLog.project_id == project_id).order_by(MilestoneLog.completed_at.desc())
     )
     return result.scalars().all()
 

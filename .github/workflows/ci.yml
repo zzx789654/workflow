@@ -1,4 +1,4 @@
-name: CI
+name: CI — WorkFlow Secure Build (G5)
 
 on:
   push:

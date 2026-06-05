@@ -1,4 +1,5 @@
 """F16 — 個人效率分析 Personal Insights"""
+
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
@@ -43,11 +44,7 @@ async def get_insights(
 
     # Average time from creation to done (minutes)
     avg_res = await db.execute(
-        select(
-            func.avg(
-                func.extract("epoch", Task.updated_at - Task.created_at) / 60
-            ).label("avg_minutes")
-        )
+        select(func.avg(func.extract("epoch", Task.updated_at - Task.created_at) / 60).label("avg_minutes"))
         .join(TaskAssignee, Task.id == TaskAssignee.task_id)
         .where(
             and_(
@@ -77,10 +74,7 @@ async def get_insights(
         .order_by(func.extract("dow", TimeLog.started_at))
     )
     DOW_LABELS = ["日", "一", "二", "三", "四", "五", "六"]
-    by_dow = [
-        {"dow": DOW_LABELS[int(r.dow)], "total_minutes": r.total_minutes}
-        for r in hour_res.all()
-    ]
+    by_dow = [{"dow": DOW_LABELS[int(r.dow)], "total_minutes": r.total_minutes} for r in hour_res.all()]
 
     # Total tasks summary
     total_res = await db.execute(

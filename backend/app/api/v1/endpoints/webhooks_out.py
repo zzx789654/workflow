@@ -1,17 +1,18 @@
 """F18 — Outgoing Webhooks"""
+
 import hashlib
 import hmac
 import uuid
 from datetime import UTC, datetime
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel, Field, HttpUrl
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
-from app.db.session import get_db, AsyncSessionLocal
+from app.db.session import AsyncSessionLocal, get_db
 from app.models.project import ProjectMember
 from app.models.user import User
 from app.models.v4_models import WebhookDelivery, WebhookEndpoint
@@ -19,8 +20,11 @@ from app.models.v4_models import WebhookDelivery, WebhookEndpoint
 router = APIRouter(prefix="/projects/{project_id}/webhooks", tags=["webhooks_out"])
 
 VALID_EVENTS = {
-    "task.created", "task.updated", "task.completed",
-    "milestone.completed", "comment.created",
+    "task.created",
+    "task.updated",
+    "task.completed",
+    "milestone.completed",
+    "comment.created",
 }
 
 
@@ -38,11 +42,33 @@ async def _check_manager(project_id: uuid.UUID, user: User, db: AsyncSession):
         raise HTTPException(status_code=403, detail="Manager access required")
 
 
+def _validate_webhook_url(url: str) -> str:
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("https", "http"):
+        raise ValueError("Webhook URL must use http or https scheme")
+    if not parsed.netloc:
+        raise ValueError("Webhook URL must have a valid host")
+    # Block private/loopback ranges (basic SSRF guard)
+    host = parsed.hostname or ""
+    if host in ("localhost", "127.0.0.1", "::1") or host.startswith("192.168.") or host.startswith("10."):
+        raise ValueError("Webhook URL must not target private/loopback addresses")
+    return url
+
+
 class WebhookCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
-    url: str = Field(..., min_length=1)
+    url: str = Field(..., min_length=1, max_length=2048)
     secret: str | None = Field(None, max_length=200)
     events: list[str] = Field(default_factory=list)
+
+    from pydantic import field_validator
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        return _validate_webhook_url(v)
 
 
 class WebhookOut(BaseModel):
@@ -65,9 +91,7 @@ async def list_webhooks(
     current_user: User = Depends(get_current_user),
 ):
     await _check_manager(project_id, current_user, db)
-    res = await db.execute(
-        select(WebhookEndpoint).where(WebhookEndpoint.project_id == project_id)
-    )
+    res = await db.execute(select(WebhookEndpoint).where(WebhookEndpoint.project_id == project_id))
     return res.scalars().all()
 
 

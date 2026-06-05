@@ -1,4 +1,5 @@
 """F15 — 任務 Check-in 每日進度更新"""
+
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -55,9 +56,7 @@ async def list_checkins(
 ):
     await _check_member(project_id, current_user, db)
     res = await db.execute(
-        select(TaskCheckin)
-        .where(TaskCheckin.task_id == task_id)
-        .order_by(TaskCheckin.checked_at.desc())
+        select(TaskCheckin).where(TaskCheckin.task_id == task_id).order_by(TaskCheckin.checked_at.desc())
     )
     return res.scalars().all()
 
@@ -94,13 +93,9 @@ async def stale_checkins(
 ):
     cutoff = datetime.now(UTC) - timedelta(days=2)
     if current_user.role.value == "admin":
-        proj_res = await db.execute(
-            select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id)
-        )
+        proj_res = await db.execute(select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id))
     else:
-        proj_res = await db.execute(
-            select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id)
-        )
+        proj_res = await db.execute(select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id))
     proj_ids = [r[0] for r in proj_res.all()]
 
     # Tasks in progress with no recent checkin
@@ -117,18 +112,17 @@ async def stale_checkins(
     stale = []
     for t in tasks:
         last_res = await db.execute(
-            select(TaskCheckin)
-            .where(TaskCheckin.task_id == t.id)
-            .order_by(TaskCheckin.checked_at.desc())
-            .limit(1)
+            select(TaskCheckin).where(TaskCheckin.task_id == t.id).order_by(TaskCheckin.checked_at.desc()).limit(1)
         )
         last = last_res.scalar_one_or_none()
         if not last or last.checked_at < cutoff:
-            stale.append({
-                "task_id": str(t.id),
-                "title": t.title,
-                "project_id": str(t.project_id),
-                "last_checkin": last.checked_at.isoformat() if last else None,
-            })
+            stale.append(
+                {
+                    "task_id": str(t.id),
+                    "title": t.title,
+                    "project_id": str(t.project_id),
+                    "last_checkin": last.checked_at.isoformat() if last else None,
+                }
+            )
 
     return {"stale_tasks": stale}

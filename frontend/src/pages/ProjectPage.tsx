@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Routes, Route, NavLink } from 'react-router-dom'
 import { projectsApi } from '../api/projects'
 import { templatesApi } from '../api/templates'
+import { healthScoreApi } from '../api/healthScore'
 import type { Project, Task, User } from '../types'
 import { useTaskStore } from '../stores/taskStore'
 import { useProjectWs } from '../hooks/useProjectWs'
@@ -24,6 +25,7 @@ export default function ProjectPage() {
   const [savingTemplate, setSavingTemplate] = useState(false)
   const [filter, setFilter] = useState<KanbanFilter>({ assigneeId: '', priority: '', status: '', keyword: '' })
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board')
+  const [healthScore, setHealthScore] = useState<{ score: number; label: string } | null>(null)
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const tasks = useTaskStore((s) => s.tasks)
   useProjectWs(projectId)
@@ -33,6 +35,9 @@ export default function ProjectPage() {
     projectsApi.get(projectId).then((r) => setProject(r.data))
     projectsApi.listMembers(projectId).then((r) => setMembers(r.data.map((m: { user: User }) => m.user)))
     fetchTasks(projectId)
+    healthScoreApi.get(projectId)
+      .then(r => setHealthScore({ score: r.data.score, label: r.data.label }))
+      .catch(() => {})
   }, [projectId])
 
   const handleSaveAsTemplate = async () => {
@@ -62,6 +67,20 @@ export default function ProjectPage() {
           <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
           <h1 className="text-2xl font-bold text-gray-900 truncate">{project.name}</h1>
           {project.description && <span className="text-sm text-gray-500 truncate">{project.description}</span>}
+          {healthScore && (
+            <span
+              className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${
+                healthScore.score >= 80
+                  ? 'bg-green-100 text-green-700'
+                  : healthScore.score >= 60
+                  ? 'bg-yellow-100 text-yellow-700'
+                  : 'bg-red-100 text-red-700'
+              }`}
+              title={`健康指標：${healthScore.score} 分`}
+            >
+              健康 {healthScore.score} · {healthScore.label}
+            </span>
+          )}
         </div>
         <button
           onClick={handleSaveAsTemplate}

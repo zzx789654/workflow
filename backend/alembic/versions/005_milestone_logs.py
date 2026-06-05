@@ -1,14 +1,14 @@
 """milestone_logs: auto-record when task is completed
 
-Revision ID: 004
-Revises: 003
+Revision ID: 005
+Revises: 004
 Create Date: 2026-06-03
 """
 from typing import Sequence, Union
 from alembic import op
 
-revision: str = "004"
-down_revision: Union[str, None] = "003"
+revision: str = "005"
+down_revision: Union[str, None] = "004"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -1,5 +1,6 @@
 """F24 — AI 優先度建議（規則引擎，預留 Claude API 介面）"""
-from datetime import UTC, date, datetime, timedelta
+
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import and_, func, select
@@ -7,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
-from app.models.project import Project, ProjectMember
+from app.models.project import ProjectMember
 from app.models.task import Task, TaskAssignee
 from app.models.user import User
 from app.models.v3_models import TaskDependency
@@ -47,9 +48,7 @@ async def priority_suggestions(
     if current_user.role.value == "admin":
         proj_res = await db.execute(select(ProjectMember.project_id))
     else:
-        proj_res = await db.execute(
-            select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id)
-        )
+        proj_res = await db.execute(select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id))
     proj_ids = [r[0] for r in proj_res.all()]
 
     # Open tasks assigned to current user
@@ -81,10 +80,7 @@ async def priority_suggestions(
     scored = []
     today = date.today().isoformat()
     for t in tasks:
-        overdue = (
-            (date.today() - date.fromisoformat(t.due_date)).days
-            if t.due_date and t.due_date < today else 0
-        )
+        overdue = (date.today() - date.fromisoformat(t.due_date)).days if t.due_date and t.due_date < today else 0
         blocking = blocking_map.get(str(t.id), 0)
         score = _urgency_score(t, overdue, blocking)
 
@@ -100,16 +96,18 @@ async def priority_suggestions(
         if t.priority in ("urgent", "high"):
             reason_parts.append(f"優先度：{t.priority}")
 
-        scored.append({
-            "task_id": str(t.id),
-            "title": t.title,
-            "project_id": str(t.project_id),
-            "priority": t.priority,
-            "status": t.status,
-            "due_date": t.due_date,
-            "urgency_score": score,
-            "reason": "；".join(reason_parts) if reason_parts else "常規追蹤",
-        })
+        scored.append(
+            {
+                "task_id": str(t.id),
+                "title": t.title,
+                "project_id": str(t.project_id),
+                "priority": t.priority,
+                "status": t.status,
+                "due_date": t.due_date,
+                "urgency_score": score,
+                "reason": "；".join(reason_parts) if reason_parts else "常規追蹤",
+            }
+        )
 
     scored.sort(key=lambda x: x["urgency_score"], reverse=True)
     top5 = scored[:5]

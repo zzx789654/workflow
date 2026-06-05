@@ -101,6 +101,8 @@ export interface Task {
   progress: number
   subtask_count: number
   subtask_done_count: number
+  recurrence_rule: string | null
+  recurrence_parent_id: string | null
   created_at: string
   updated_at: string
   assignees: User[]

@@ -1,4 +1,5 @@
 """F17 — 公告板 Announcements"""
+
 import uuid
 from datetime import UTC, datetime
 
@@ -42,34 +43,36 @@ async def list_announcements(
 ):
     now = datetime.now(UTC)
     res = await db.execute(
-        select(Announcement).where(
+        select(Announcement)
+        .where(
             and_(
                 Announcement.is_active == True,
-                or_(Announcement.expires_at == None, Announcement.expires_at > now),
+                or_(Announcement.expires_at is None, Announcement.expires_at > now),
             )
-        ).order_by(Announcement.created_at.desc())
+        )
+        .order_by(Announcement.created_at.desc())
     )
     announcements = res.scalars().all()
 
     # Check read status
     read_res = await db.execute(
-        select(AnnouncementRead.announcement_id).where(
-            AnnouncementRead.user_id == current_user.id
-        )
+        select(AnnouncementRead.announcement_id).where(AnnouncementRead.user_id == current_user.id)
     )
     read_ids = {str(r[0]) for r in read_res.all()}
 
     return [
-        AnnouncementOut(**{
-            "id": a.id,
-            "author_id": a.author_id,
-            "title": a.title,
-            "content": a.content,
-            "is_active": a.is_active,
-            "expires_at": a.expires_at,
-            "created_at": a.created_at,
-            "is_read": str(a.id) in read_ids,
-        })
+        AnnouncementOut(
+            **{
+                "id": a.id,
+                "author_id": a.author_id,
+                "title": a.title,
+                "content": a.content,
+                "is_active": a.is_active,
+                "expires_at": a.expires_at,
+                "created_at": a.created_at,
+                "is_read": str(a.id) in read_ids,
+            }
+        )
         for a in announcements
     ]
 

@@ -6,10 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_project_membership
-from app.api.v1.endpoints.notifications import _parse_and_notify
 from app.api.v1.endpoints.milestones import record_task_completion
+from app.api.v1.endpoints.notifications import _parse_and_notify
 from app.db.session import get_db
-from app.models.project import ProjectMember, ProjectRole
+from app.models.project import ProjectRole
 from app.models.task import Task, TaskAssignee, TaskComment
 from app.models.user import User
 from app.schemas.task import KanbanMoveRequest, TaskCommentCreate, TaskCommentOut, TaskCreate, TaskOut, TaskUpdate
