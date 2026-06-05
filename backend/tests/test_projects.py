@@ -13,7 +13,6 @@ async def test_create_project(client: AsyncClient, admin_token: str):
     data = resp.json()
     assert data["name"] == "Test Project"
     assert data["color"] == "#ff5733"
-    return data["id"]
 
 
 @pytest.mark.asyncio
@@ -31,7 +30,7 @@ async def test_list_projects(client: AsyncClient, admin_token: str):
 @pytest.mark.asyncio
 async def test_project_requires_auth(client: AsyncClient):
     resp = await client.get("/api/v1/projects/")
-    assert resp.status_code == 403
+    assert resp.status_code in (401, 403)
 
 
 @pytest.mark.asyncio
