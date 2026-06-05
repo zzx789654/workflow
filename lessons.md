@@ -1,3 +1,36 @@
+## [2026-06-05] 輪結 Round 9 — V3 全功能前端補完 + Migration 修復 + Lint 全清
+
+- 現況：G1✅ G2✅ G3✅ G4✅；G5 CI 已觸發（commit 41399dc）；G6 待 CI 綠燈後執行
+- PM：補完 F10/F18/F23 前端整合；Migration 衝突修復；本輪為「上線前最後補完」
+- Dev/Sec：Critical_0 / High_0 / Medium_1（FIND-WF-001 SSRF 防護，已修補）/ Low_1（FIND-WF-002 secret input，已修補）；達標 ✓
+- QA：後端 ruff lint/format 全清（47 issues fixed）；靜態審查 Pass；本機無 PostgreSQL 故 unit test 依 CI 環境執行
+- CI/CD：已 push，GitHub Actions 觸發；本機 Docker 跳過（Docker Desktop 未啟動）
+- 退回事件：無
+
+### 教訓 / 準則
+
+**教訓 41：兩個 Alembic migration 若有相同 revision ID，alembic upgrade head 會隨機選一執行或報錯**
+- 情境：`004_milestone_logs.py` 和 `004_v3_p2_p3_features.py` 都宣告 `revision="004"`，down_revision 都是 `"003"`
+- 準則：發現衝突時，將後加入的 migration 改為更高 revision ID（如 `005`），並把 down_revision 指向前一個已存在的 migration
+- **How to apply：** 每次新建 migration 前先確認 versions/ 目錄下無相同 revision ID
+
+**教訓 42：CI workflow_run 觸發器的 workflows 名稱必須與被觸發的 workflow 的 name: 欄位完全一致**
+- 情境：cd.yml 用 `workflows: ["CI — WorkFlow Secure Build (G5)"]`，但 ci.yml 的 `name: CI`，導致 CD 永遠不觸發
+- 準則：設定 workflow_run 觸發器時，立即查看被觸發 workflow 的 name: 欄位，確保字串完全相符（含特殊字元）
+- **How to apply：** CI/CD 建立後立即用 gh run list 確認 CD 有被 CI 完成後觸發
+
+**教訓 43：Webhook 接收端 URL 必須在後端做 SSRF 基本防護**
+- 情境：WebhookCreate 接受任意 URL，Manager 可設定 http://localhost/internal 或 http://192.168.x.x/，讓後端打內部服務
+- 準則：在 Pydantic validator 中驗證 scheme（僅 http/https）並 blocklist loopback/private 位址；前端 type="url" 僅做格式驗證，不夠
+- **How to apply：** 任何後端要主動發出 HTTP 請求的 URL 輸入欄位，都加此 SSRF guard
+
+### 過程原始輸出位置
+- 修改的關鍵檔案：backend/app/schemas/task.py、frontend/src/components/project/TaskDetailPanel.tsx、frontend/src/components/project/ProjectSettingsTab.tsx、frontend/src/pages/ProjectPage.tsx
+- 新增 API 客戶端：frontend/src/api/recurring.ts、frontend/src/api/webhooks.ts
+- Migration 修復：backend/alembic/versions/005_milestone_logs.py（原 004_milestone_logs.py 刪除）
+
+---
+
 ## [2026-06-04] 輪結 Round 8 — V3 P1 F07 補完 + P2/P3 全功能實作
 
 - 現況：G1✅ G2✅ G3✅ G4✅；G5/G6 待 Docker 環境執行
