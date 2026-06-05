@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Routes, Route, NavLink } from 'react-router-dom'
+import { toast } from '../stores/toastStore'
 import { projectsApi } from '../api/projects'
 import { templatesApi } from '../api/templates'
 import { healthScoreApi } from '../api/healthScore'
@@ -47,9 +48,9 @@ export default function ProjectPage() {
     setSavingTemplate(true)
     try {
       await templatesApi.createFromProject(projectId, name)
-      alert('已儲存為範本！')
+      toast.success('已儲存為範本！')
     } catch {
-      alert('儲存失敗')
+      toast.error('儲存失敗')
     } finally { setSavingTemplate(false) }
   }
 

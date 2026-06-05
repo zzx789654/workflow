@@ -26,9 +26,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="card w-full max-w-md">
-        <h1 className="text-2xl font-bold text-primary-600 mb-6 text-center">WorkFlow 登入</h1>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 via-white to-gray-50">
+      <div className="card w-full max-w-md shadow-lg" style={{ animation: 'slide-up 0.25s ease-out' }}>
+        <div className="text-center mb-6">
+          <span className="text-3xl font-bold text-primary-600 tracking-tight">WorkFlow</span>
+          <p className="text-sm text-gray-500 mt-1">登入您的帳號</p>
+        </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">電子郵件</label>
@@ -38,9 +41,18 @@ export default function LoginPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">密碼</label>
             <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </div>
-          {error && <p className="text-red-500 text-sm">{error}</p>}
+          {error && (
+            <p className="text-red-500 text-sm bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+              {error}
+            </p>
+          )}
           <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? '登入中…' : '登入'}
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                登入中…
+              </span>
+            ) : '登入'}
           </button>
         </form>
         <p className="mt-4 text-center text-sm text-gray-600">

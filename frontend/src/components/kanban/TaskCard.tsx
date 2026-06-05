@@ -58,7 +58,11 @@ export default function TaskCard({ task, onClick, isDragging = false, isBlocked 
       {...attributes}
       {...listeners}
       onClick={onClick}
-      className={`${cardBase} rounded-lg p-3 shadow-sm border cursor-pointer hover:shadow-md transition-shadow ${isDragging ? 'shadow-xl rotate-2' : ''}`}
+      className={`${cardBase} rounded-xl p-3 shadow-sm border cursor-pointer
+        hover:shadow-md hover:-translate-y-0.5 hover:border-primary-200
+        active:scale-[0.98] transition-all duration-150 ease-out
+        ${isDragging ? 'shadow-xl rotate-2 scale-105' : ''}
+        ${sortableDragging ? '' : ''}`}
     >
       <div className="flex items-start gap-1 mb-2">
         {isBlocked && (

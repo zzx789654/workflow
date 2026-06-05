@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { projectsApi } from '../../api/projects'
+import { toast } from '../../stores/toastStore'
 import { api } from '../../api/client'
 import type { ProjectMember, User, ProjectRole } from '../../types'
 import { useAuthStore } from '../../stores/authStore'
@@ -61,12 +62,12 @@ export default function MembersTab({ projectId }: Props) {
       await api.patch(`/projects/${projectId}/members/${userId}/role?role=${role}`)
       await load()
     } catch (err: any) {
-      alert(err?.response?.data?.detail ?? '更新失敗')
+      toast.error(err?.response?.data?.detail ?? '更新失敗')
     } finally { setUpdatingId(null) }
   }
 
   const handleRemove = async (userId: string, memberRole: string) => {
-    if (memberRole === 'owner') { alert('無法移除專案擁有者'); return }
+    if (memberRole === 'owner') { toast.error('無法移除專案擁有者'); return }
     if (!confirm('確定移除此成員？')) return
     await projectsApi.removeMember(projectId, userId)
     await load()

@@ -11,6 +11,7 @@ import { attachmentsApi } from '../../api/attachments'
 import { checkinsApi } from '../../api/checkins'
 import { projectsApi } from '../../api/projects'
 import { useTaskStore } from '../../stores/taskStore'
+import { toast } from '../../stores/toastStore'
 
 const EMOJI_OPTIONS = ['👍', '❤️', '🎉', '🚀', '👀', '🔥', '✅', '💯']
 
@@ -224,7 +225,7 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
       const res = await attachmentsApi.upload(projectId, task.id, file)
       setAttachments(a => [res.data, ...a])
     } catch (err: any) {
-      alert(err?.response?.data?.detail ?? '上傳失敗')
+      toast.error(err?.response?.data?.detail ?? '上傳失敗')
     } finally { setUploadingFile(false); e.target.value = '' }
   }
 
@@ -307,7 +308,7 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
       setDeps(d => [...d, res.data])
       setDepTargetId('')
     } catch (err: any) {
-      alert(err?.response?.data?.detail ?? '新增依賴失敗')
+      toast.error(err?.response?.data?.detail ?? '新增依賴失敗')
     } finally { setAddingDep(false) }
   }
 
@@ -350,7 +351,7 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
         await recurringApi.remove(projectId, task.id)
       }
     } catch (err: any) {
-      alert(err?.response?.data?.detail ?? '儲存失敗')
+      toast.error(err?.response?.data?.detail ?? '儲存失敗')
     } finally { setSavingRecurrence(false) }
   }
 
@@ -358,10 +359,10 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
     if (!confirm('確定要立即產生下一筆重複任務？')) return
     try {
       await recurringApi.spawnNext(projectId, task.id)
-      alert('已產生下一筆任務！')
+      toast.success('已產生下一筆任務！')
       fetchTasks(projectId)
     } catch (err: any) {
-      alert(err?.response?.data?.detail ?? '產生失敗')
+      toast.error(err?.response?.data?.detail ?? '產生失敗')
     }
   }
 

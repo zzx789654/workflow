@@ -206,13 +206,21 @@ export default function DashboardPage() {
         )}
 
         {projects.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">尚無專案，點擊上方「新增專案」開始</div>
+          <div className="flex flex-col items-center justify-center py-20 text-gray-400 space-y-3">
+            <span className="text-5xl">📁</span>
+            <p className="text-base font-medium">還沒有專案</p>
+            <p className="text-sm">點擊上方「新增專案」開始吧</p>
+          </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {projects.map((p) => (
-              <Link key={p.id} to={`/projects/${p.id}`} className="card hover:shadow-md transition-shadow group">
+              <Link
+                key={p.id}
+                to={`/projects/${p.id}`}
+                className="card-hover group"
+              >
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />
+                  <div className="w-3 h-3 rounded-full flex-shrink-0 ring-2 ring-white ring-offset-1" style={{ backgroundColor: p.color }} />
                   <h3 className="font-semibold text-gray-900 group-hover:text-primary-600 transition-colors truncate">
                     {p.name}
                   </h3>
@@ -220,9 +228,14 @@ export default function DashboardPage() {
                 {p.description && (
                   <p className="text-sm text-gray-500 mb-3 line-clamp-2">{p.description}</p>
                 )}
-                <div className="flex items-center gap-4 text-xs text-gray-400">
+                <div className="flex items-center justify-between text-xs text-gray-400 mt-2">
                   <span>{p.member_count} 位成員</span>
-                  {p.is_archived && <span className="text-amber-500">已封存</span>}
+                  <div className="flex items-center gap-2">
+                    {p.end_date && (
+                      <span className="text-gray-400">截止 {p.end_date}</span>
+                    )}
+                    {p.is_archived && <span className="text-amber-500 font-medium">已封存</span>}
+                  </div>
                 </div>
               </Link>
             ))}

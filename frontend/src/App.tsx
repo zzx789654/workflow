@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
+import ToastContainer from './components/ui/ToastContainer'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
@@ -32,6 +33,8 @@ export default function App() {
   }, [])
 
   return (
+    <>
+    <ToastContainer />
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
@@ -58,5 +61,6 @@ export default function App() {
         }
       />
     </Routes>
+    </>
   )
 }

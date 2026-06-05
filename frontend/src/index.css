@@ -6,19 +6,126 @@
   body {
     @apply bg-gray-50 text-gray-900 antialiased;
   }
+
+  /* Smooth scroll */
+  * {
+    scroll-behavior: smooth;
+  }
+
+  /* Focus visible outline for a11y */
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary-500 ring-offset-1;
+  }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors font-medium disabled:opacity-50;
+    @apply bg-primary-600 text-white px-4 py-2 rounded-lg font-medium
+           hover:bg-primary-700 active:scale-95
+           transition-all duration-150 ease-out
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
   }
   .btn-secondary {
-    @apply bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors font-medium;
+    @apply bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg font-medium
+           hover:bg-gray-50 hover:border-gray-400 active:scale-95
+           transition-all duration-150 ease-out
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-danger {
+    @apply bg-red-500 text-white px-4 py-2 rounded-lg font-medium
+           hover:bg-red-600 active:scale-95
+           transition-all duration-150 ease-out
+           disabled:opacity-50;
   }
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-4;
+    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-4
+           transition-shadow duration-200;
+  }
+  .card-hover {
+    @apply card hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer;
   }
   .input {
-    @apply w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+    @apply w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
+           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent
+           transition-shadow duration-150 placeholder:text-gray-400;
   }
+
+  /* Modal backdrop fade-in */
+  .modal-backdrop {
+    @apply fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4;
+    animation: fade-in 0.15s ease-out;
+  }
+  .modal-panel {
+    @apply bg-white rounded-xl shadow-xl w-full;
+    animation: slide-up 0.2s ease-out;
+  }
+
+  /* Sidebar nav item */
+  .nav-item {
+    @apply flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium
+           transition-all duration-150 ease-out;
+  }
+  .nav-item-active {
+    @apply nav-item bg-primary-50 text-primary-700 border-l-2 border-primary-500 pl-[10px];
+  }
+  .nav-item-inactive {
+    @apply nav-item text-gray-600 hover:bg-gray-100 hover:text-gray-900;
+  }
+
+  /* Skeleton shimmer */
+  .skeleton {
+    @apply bg-gray-200 rounded animate-pulse;
+  }
+
+  /* Toast */
+  .toast {
+    @apply fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-4 py-3
+           bg-gray-900 text-white text-sm rounded-xl shadow-2xl max-w-sm;
+    animation: toast-in 0.25s ease-out;
+  }
+  .toast-success { @apply toast border-l-4 border-green-400; }
+  .toast-error   { @apply toast border-l-4 border-red-400; }
+  .toast-info    { @apply toast border-l-4 border-blue-400; }
+  .toast-warning { @apply toast border-l-4 border-yellow-400; }
+
+  /* Page fade-in */
+  .page-enter {
+    animation: fade-in 0.2s ease-out;
+  }
+
+  /* Badge pill */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+}
+
+@layer utilities {
+  /* Scrollbar thin */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.gray.300') transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded-full; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes toast-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(24px); }
 }
