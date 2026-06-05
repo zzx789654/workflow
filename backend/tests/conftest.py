@@ -17,10 +17,9 @@ TEST_DB_URL = os.environ.get(
     "postgresql+asyncpg://workflow:workflow_pass@localhost:5432/workflow_test",
 )
 
-# Disable rate limiting in tests: replace key_func with unique-per-request UUID
-# so no IP ever accumulates hits against the in-memory counter.
-_auth_module.limiter._key_func = lambda request: str(uuid.uuid4())
-_main_limiter._key_func = lambda request: str(uuid.uuid4())
+# Disable rate limiting entirely in tests so no 429 is raised.
+_auth_module.limiter.enabled = False
+_main_limiter.enabled = False
 
 
 @pytest_asyncio.fixture
