@@ -50,9 +50,7 @@ async def admin_user(client: AsyncClient):
 
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
-        await conn.execute(
-            update(User).where(User.email == email).values(role=UserRole.admin)
-        )
+        await conn.execute(update(User).where(User.email == email).values(role=UserRole.admin))
     await engine.dispose()
 
     return type("AdminUser", (), {"email": email})()
