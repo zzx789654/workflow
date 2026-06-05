@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Task } from '../../types'
+import type { Task, TaskStatus } from '../../types'
 import { api } from '../../api/client'
 import { useTaskStore } from '../../stores/taskStore'
 
@@ -22,8 +22,8 @@ const PRIORITY_COLORS: Record<string, string> = {
 export default function TaskListView({ tasks, projectId, onSelect }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [sortBy, setSortBy] = useState<'priority' | 'due_date' | 'status'>('priority')
-  const [bulkStatus, setBulkStatus] = useState('')
-  const [undoAction, setUndoAction] = useState<null | { ids: string[]; prevStatuses: Record<string, string> }>(null)
+  const [bulkStatus, setBulkStatus] = useState<TaskStatus | ''>('')
+  const [undoAction, setUndoAction] = useState<null | { ids: string[]; prevStatuses: Record<string, TaskStatus> }>(null)
   const [undoTimeout, setUndoTimeout] = useState<ReturnType<typeof setTimeout> | null>(null)
   const fetchTasks = useTaskStore(s => s.fetchTasks)
 
@@ -49,7 +49,7 @@ export default function TaskListView({ tasks, projectId, onSelect }: Props) {
   const handleBulkUpdate = async () => {
     if (!bulkStatus || !selected.size) return
     const ids = [...selected]
-    const prevStatuses = Object.fromEntries(tasks.filter(t => ids.includes(t.id)).map(t => [t.id, t.status]))
+    const prevStatuses: Record<string, TaskStatus> = Object.fromEntries(tasks.filter(t => ids.includes(t.id)).map(t => [t.id, t.status]))
     await api.patch(`/api/v1/projects/${projectId}/tasks/bulk`, {
       task_ids: ids,
       status: bulkStatus,
@@ -102,7 +102,7 @@ export default function TaskListView({ tasks, projectId, onSelect }: Props) {
           <select
             className="input text-sm w-32"
             value={bulkStatus}
-            onChange={e => setBulkStatus(e.target.value)}
+            onChange={e => setBulkStatus(e.target.value as TaskStatus | '')}
           >
             <option value="">更改狀態…</option>
             <option value="todo">待辦</option>

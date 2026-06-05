@@ -418,7 +418,7 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      {(editTarget === 'new' || (editTarget && editTarget !== 'new')) && (
+      {editTarget != null && (
         <TemplateEditModal
           template={editTarget === 'new' ? undefined : editTarget}
           onClose={() => setEditTarget(undefined)}
