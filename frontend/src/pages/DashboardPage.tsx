@@ -44,6 +44,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
+  const [projectStartDate, setProjectStartDate] = useState('')
+  const [projectEndDate, setProjectEndDate] = useState('')
   const [creating, setCreating] = useState(false)
   const currentUser = useAuthStore(s => s.user)
   const canCreateProject = currentUser?.role === 'admin' || currentUser?.role === 'member'
@@ -66,11 +68,17 @@ export default function DashboardPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim()) return
+    if (!name.trim() || !projectStartDate || !projectEndDate) return
     setCreating(true)
     try {
-      await projectsApi.create({ name })
+      await projectsApi.create({
+        name,
+        start_date: projectStartDate || undefined,
+        end_date: projectEndDate || undefined,
+      })
       setName('')
+      setProjectStartDate('')
+      setProjectEndDate('')
       setShowCreate(false)
       await loadAll()
     } finally {
@@ -152,19 +160,48 @@ export default function DashboardPage() {
         </div>
 
         {showCreate && (
-          <form onSubmit={handleCreate} className="card mb-4 flex gap-3">
-            <input
-              className="input flex-1"
-              placeholder="專案名稱"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-              required
-            />
-            <button type="submit" disabled={creating} className="btn-primary">
-              {creating ? '建立中…' : '建立'}
-            </button>
-            <button type="button" onClick={() => setShowCreate(false)} className="btn-secondary">取消</button>
+          <form onSubmit={handleCreate} className="card mb-4 space-y-3">
+            <div>
+              <label className="text-sm font-medium text-gray-700">專案名稱</label>
+              <input
+                className="input w-full mt-1"
+                placeholder="輸入專案名稱"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoFocus
+                required
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium text-gray-700">開始日期</label>
+                <input
+                  className="input w-full mt-1"
+                  type="date"
+                  value={projectStartDate}
+                  onChange={(e) => setProjectStartDate(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">截止日期</label>
+                <input
+                  className="input w-full mt-1"
+                  type="date"
+                  value={projectEndDate}
+                  min={projectStartDate}
+                  onChange={(e) => setProjectEndDate(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400">截止日期將自動套用至此專案所有任務</p>
+            <div className="flex gap-3">
+              <button type="submit" disabled={creating} className="btn-primary flex-1">
+                {creating ? '建立中…' : '建立專案'}
+              </button>
+              <button type="button" onClick={() => setShowCreate(false)} className="btn-secondary">取消</button>
+            </div>
           </form>
         )}
 

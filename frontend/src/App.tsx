@@ -10,11 +10,9 @@ import TemplatesPage from './pages/TemplatesPage'
 import CalendarPage from './pages/CalendarPage'
 import SettingsPage from './pages/SettingsPage'
 import TimeReportPage from './pages/TimeReportPage'
-import WeeklyReportPage from './pages/WeeklyReportPage'
 import WorkloadPage from './pages/WorkloadPage'
 import InsightsPage from './pages/InsightsPage'
 import AnnouncementsPage from './pages/AnnouncementsPage'
-import AISuggestionsPage from './pages/AISuggestionsPage'
 import PublicProjectPage from './pages/PublicProjectPage'
 import Layout from './components/ui/Layout'
 
@@ -51,11 +49,9 @@ export default function App() {
                 <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/time-report" element={<TimeReportPage />} />
-                <Route path="/weekly-report" element={<WeeklyReportPage />} />
                 <Route path="/workload" element={<WorkloadPage />} />
                 <Route path="/insights" element={<InsightsPage />} />
                 <Route path="/announcements" element={<AnnouncementsPage />} />
-                <Route path="/ai-assist" element={<AISuggestionsPage />} />
               </Routes>
             </Layout>
           </RequireAuth>

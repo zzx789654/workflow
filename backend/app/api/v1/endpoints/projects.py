@@ -1,13 +1,14 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_project_membership
 from app.db.session import get_db
 from app.models.project import Project, ProjectMember, ProjectRole
+from app.models.task import Task
 from app.models.user import User
 from app.schemas.project import AddMemberRequest, ProjectCreate, ProjectMemberOut, ProjectOut, ProjectUpdate
 
@@ -53,6 +54,20 @@ async def create_project(
     return ProjectOut(**project.__dict__, member_count=1)
 
 
+@router.post("/{project_id}/apply-deadline", status_code=204)
+async def apply_project_deadline_to_tasks(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Propagate project end_date to all tasks in the project."""
+    await require_project_membership(project_id, current_user, db, ProjectRole.manager)
+    project = await get_project_or_404(project_id, db)
+    if project.end_date:
+        await db.execute(update(Task).where(Task.project_id == project_id).values(due_date=str(project.end_date)))
+        await db.commit()
+
+
 @router.get("/", response_model=list[ProjectOut])
 async def list_projects(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role.value == "admin":
@@ -87,8 +102,14 @@ async def update_project(
 ):
     await require_project_membership(project_id, current_user, db, ProjectRole.manager)
     project = await get_project_or_404(project_id, db)
-    for field, value in body.model_dump(exclude_none=True).items():
+    update_data = body.model_dump(exclude_none=True)
+    for field, value in update_data.items():
         setattr(project, field, value)
+    # When end_date is updated, propagate to all tasks in the project
+    if "end_date" in update_data and update_data["end_date"]:
+        await db.execute(
+            update(Task).where(Task.project_id == project_id).values(due_date=str(update_data["end_date"]))
+        )
     await db.commit()
     await db.refresh(project)
     count_result = await db.execute(select(func.count()).where(ProjectMember.project_id == project_id))

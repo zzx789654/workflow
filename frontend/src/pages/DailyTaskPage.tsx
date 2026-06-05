@@ -12,12 +12,23 @@ const STATUS_COLORS: Record<DailyTaskStatus, string> = {
   done: 'bg-green-100 text-green-600',
   cancelled: 'bg-red-100 text-red-500',
 }
-const PRIORITY_COLORS: Record<string, string> = {
-  low: 'bg-gray-100 text-gray-500', medium: 'bg-blue-50 text-blue-600',
-  high: 'bg-orange-100 text-orange-600', urgent: 'bg-red-100 text-red-600',
-}
+
+const NOTIFY_OPTIONS = [
+  { value: '', label: '不需要' },
+  { value: '1', label: '1 天前' },
+  { value: '3', label: '3 天前' },
+  { value: '7', label: '7 天前' },
+]
 
 const today = () => format(new Date(), 'yyyy-MM-dd')
+
+// Compute notify_at datetime from due date + days-before offset
+function computeNotifyAt(date: string, daysBefore: string): string | undefined {
+  if (!date || !daysBefore) return undefined
+  const d = new Date(date)
+  d.setDate(d.getDate() - parseInt(daysBefore))
+  return `${format(d, 'yyyy-MM-dd')}T09:00:00`
+}
 
 function DailyTaskModal({
   task, onClose, onSave,
@@ -26,12 +37,21 @@ function DailyTaskModal({
   const [title, setTitle] = useState(task?.title ?? '')
   const [description, setDescription] = useState(task?.description ?? '')
   const [status, setStatus] = useState<DailyTaskStatus>(task?.status ?? 'pending')
-  const [progress, setProgress] = useState(task?.progress ?? 0)
   const [date, setDate] = useState(task?.date ?? today())
-  const [startedAt, setStartedAt] = useState(task?.started_at?.slice(0, 16) ?? '')
-  const [endedAt, setEndedAt] = useState(task?.ended_at?.slice(0, 16) ?? '')
-  const [notifyAt, setNotifyAt] = useState(task?.notify_at?.slice(0, 16) ?? '')
-  const [workMinutes, setWorkMinutes] = useState(task?.work_minutes ?? 0)
+  // Notify: derive days-before from existing notify_at if available
+  const [notifyDays, setNotifyDays] = useState<string>(() => {
+    if (!task?.notify_at || !task?.date) return ''
+    const notifyDate = new Date(task.notify_at.slice(0, 10))
+    const dueDate = new Date(task.date)
+    const diff = Math.round((dueDate.getTime() - notifyDate.getTime()) / 86400000)
+    if (diff === 1) return '1'
+    if (diff === 3) return '3'
+    if (diff === 7) return '7'
+    return ''
+  })
+  const [workHours, setWorkHours] = useState(
+    task?.work_minutes ? Math.round(task.work_minutes / 60 * 10) / 10 : 0
+  )
   const [labelsStr, setLabelsStr] = useState(task?.labels.join(', ') ?? '')
   const [loading, setLoading] = useState(false)
   const [continuous, setContinuous] = useState(false)
@@ -42,12 +62,18 @@ function DailyTaskModal({
     e.preventDefault()
     setLoading(true)
     const labels = labelsStr.split(',').map(s => s.trim()).filter(Boolean)
+    const notify_at = computeNotifyAt(date, notifyDays)
     const payload = {
-      title, description: description || undefined, status, progress,
-      date, work_minutes: workMinutes, labels,
-      started_at: startedAt ? `${startedAt}:00` : undefined,
-      ended_at: endedAt ? `${endedAt}:00` : undefined,
-      notify_at: notifyAt ? `${notifyAt}:00` : undefined,
+      title,
+      description: description || undefined,
+      status,
+      progress: 0,
+      date,
+      work_minutes: Math.round(workHours * 60),
+      labels,
+      notify_at,
+      started_at: undefined,
+      ended_at: undefined,
     }
     try {
       if (task) {
@@ -58,7 +84,7 @@ function DailyTaskModal({
         if (continuous) {
           setTitle('')
           setAddedCount(c => c + 1)
-          onSave(true)  // keepOpen=true：父元件只重載列表，不關閉 modal
+          onSave(true)
           setTimeout(() => titleRef.current?.focus(), 50)
         } else {
           onSave()
@@ -78,42 +104,53 @@ function DailyTaskModal({
             </h2>
           </div>
           <form onSubmit={handleSubmit} className="space-y-3">
-            <div><label className="text-sm font-medium text-gray-700">標題</label>
-              <input ref={titleRef} className="input mt-1" value={title} onChange={e => setTitle(e.target.value)} required autoFocus /></div>
-            <div><label className="text-sm font-medium text-gray-700">說明</label>
-              <textarea className="input mt-1 resize-none" rows={2} value={description} onChange={e => setDescription(e.target.value)} /></div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">標題</label>
+              <input ref={titleRef} className="input mt-1 w-full" value={title} onChange={e => setTitle(e.target.value)} required autoFocus />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">說明</label>
+              <textarea className="input mt-1 w-full resize-none" rows={2} value={description} onChange={e => setDescription(e.target.value)} />
+            </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="text-sm font-medium text-gray-700">日期</label>
-                <input className="input mt-1" type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
-              <div><label className="text-sm font-medium text-gray-700">狀態</label>
-                <select className="input mt-1" value={status} onChange={e => setStatus(e.target.value as DailyTaskStatus)}>
+              <div>
+                <label className="text-sm font-medium text-gray-700">日期</label>
+                <input className="input mt-1 w-full" type="date" value={date} onChange={e => setDate(e.target.value)} required />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">狀態</label>
+                <select className="input mt-1 w-full" value={status} onChange={e => setStatus(e.target.value as DailyTaskStatus)}>
                   {(Object.keys(STATUS_LABELS) as DailyTaskStatus[]).map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-                </select></div>
-            </div>
-            <div><label className="text-sm font-medium text-gray-700">進度 {progress}%</label>
-              <input className="w-full mt-1" type="range" min={0} max={100} value={progress} onChange={e => setProgress(+e.target.value)} /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><label className="text-sm font-medium text-gray-700">開始時間</label>
-                <input className="input mt-1" type="datetime-local" value={startedAt} onChange={e => setStartedAt(e.target.value)} /></div>
-              <div><label className="text-sm font-medium text-gray-700">結束時間</label>
-                <input className="input mt-1" type="datetime-local" value={endedAt} onChange={e => setEndedAt(e.target.value)} /></div>
+                </select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="text-sm font-medium text-gray-700">通知時間</label>
-                <input className="input mt-1" type="datetime-local" value={notifyAt} onChange={e => setNotifyAt(e.target.value)} /></div>
-              <div><label className="text-sm font-medium text-gray-700">工作分鐘數</label>
-                <input className="input mt-1" type="number" min={0} value={workMinutes} onChange={e => setWorkMinutes(+e.target.value)} /></div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">通知時間</label>
+                <select className="input mt-1 w-full" value={notifyDays} onChange={e => setNotifyDays(e.target.value)}>
+                  {NOTIFY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">工作時數</label>
+                <input
+                  className="input mt-1 w-full"
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={workHours}
+                  onChange={e => setWorkHours(+e.target.value)}
+                  placeholder="例：1.5"
+                />
+              </div>
             </div>
-            <div><label className="text-sm font-medium text-gray-700">標籤（逗號分隔）</label>
-              <input className="input mt-1" placeholder="例：開發, 會議, 文件" value={labelsStr} onChange={e => setLabelsStr(e.target.value)} /></div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">標籤（逗號分隔）</label>
+              <input className="input mt-1 w-full" placeholder="例：開發, 會議, 文件" value={labelsStr} onChange={e => setLabelsStr(e.target.value)} />
+            </div>
             {isNew && (
               <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={continuous}
-                  onChange={e => setContinuous(e.target.checked)}
-                  className="rounded"
-                />
+                <input type="checkbox" checked={continuous} onChange={e => setContinuous(e.target.checked)} className="rounded" />
                 連續輸入模式（新增後保持開啟，快速建立多筆）
               </label>
             )}
@@ -203,23 +240,12 @@ export default function DailyTaskPage() {
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-900">日常作業</h1>
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            className="btn-secondary text-sm"
-            onClick={handleDownloadTemplate}
-            title="下載 Excel 範本"
-          >
-            📥 下載範本
+          <button className="btn-secondary text-sm" onClick={handleDownloadTemplate} title="下載 Excel 範本">
+            下載範本
           </button>
           <label className={`btn-secondary text-sm cursor-pointer ${importing ? 'opacity-50 pointer-events-none' : ''}`}>
-            {importing ? '匯入中…' : '📤 匯入 Excel'}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx"
-              className="hidden"
-              onChange={handleImportFile}
-              disabled={importing}
-            />
+            {importing ? '匯入中…' : '匯入 Excel'}
+            <input ref={fileInputRef} type="file" accept=".xlsx" className="hidden" onChange={handleImportFile} disabled={importing} />
           </label>
           <button className="btn-primary text-sm" onClick={() => { setEditing(null); setShowModal(true) }}>+ 新增作業</button>
         </div>
@@ -232,14 +258,12 @@ export default function DailyTaskPage() {
             <div>
               <p className={`font-medium ${importResult.created > 0 ? 'text-green-700' : 'text-red-700'}`}>
                 {importResult.created > 0
-                  ? `✅ 成功匯入 ${importResult.created} / ${importResult.total_rows} 筆`
-                  : '❌ 匯入失敗'}
+                  ? `成功匯入 ${importResult.created} / ${importResult.total_rows} 筆`
+                  : '匯入失敗'}
               </p>
               {importResult.errors.length > 0 && (
                 <ul className="mt-2 space-y-0.5">
-                  {importResult.errors.map((e, i) => (
-                    <li key={i} className="text-red-600">• {e}</li>
-                  ))}
+                  {importResult.errors.map((e, i) => <li key={i} className="text-red-600">• {e}</li>)}
                 </ul>
               )}
             </div>
@@ -290,23 +314,17 @@ export default function DailyTaskPage() {
                   <p className="font-semibold text-gray-900 truncate">{t.title}</p>
                   {t.description && <p className="text-sm text-gray-500 mt-0.5 line-clamp-1">{t.description}</p>}
                   <div className="flex items-center gap-4 mt-2 text-xs text-gray-400 flex-wrap">
-                    {t.work_minutes > 0 && <span>⏱ {Math.floor(t.work_minutes / 60)}h {t.work_minutes % 60}m</span>}
-                    {t.started_at && <span>開始 {t.started_at.slice(11, 16)}</span>}
-                    {t.ended_at && <span>結束 {t.ended_at.slice(11, 16)}</span>}
-                    {t.notify_at && <span>🔔 {t.notify_at.slice(11, 16)}</span>}
+                    {t.work_minutes > 0 && (
+                      <span>{Math.round(t.work_minutes / 60 * 10) / 10}h</span>
+                    )}
+                    {t.notify_at && (
+                      <span>通知 {t.notify_at.slice(0, 10)}</span>
+                    )}
                   </div>
                 </div>
-                <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-gray-700">{t.progress}%</p>
-                    <div className="w-20 bg-gray-100 rounded-full h-1.5 mt-1">
-                      <div className="bg-primary-500 h-1.5 rounded-full" style={{ width: `${t.progress}%` }} />
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="text-xs text-blue-500 hover:text-blue-700" onClick={() => { setEditing(t); setShowModal(true) }}>編輯</button>
-                    <button className="text-xs text-red-400 hover:text-red-600" onClick={() => handleDelete(t.id)}>刪除</button>
-                  </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <button className="text-xs text-blue-500 hover:text-blue-700" onClick={() => { setEditing(t); setShowModal(true) }}>編輯</button>
+                  <button className="text-xs text-red-400 hover:text-red-600" onClick={() => handleDelete(t.id)}>刪除</button>
                 </div>
               </div>
             </div>

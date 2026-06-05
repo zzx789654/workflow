@@ -21,6 +21,8 @@ export interface Project {
   description: string | null
   color: string
   is_archived: boolean
+  start_date: string | null
+  end_date: string | null
   created_at: string
   updated_at: string
   member_count: number

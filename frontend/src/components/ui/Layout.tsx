@@ -10,11 +10,9 @@ const navItems = [
   { to: '/templates', label: '專案範本', icon: '🗂️', end: false },
   { to: '/calendar', label: '月曆', icon: '📅', end: false },
   { to: '/time-report', label: '工時報表', icon: '⏱️', end: false },
-  { to: '/weekly-report', label: '週報', icon: '📊', end: false },
   { to: '/workload', label: '工作量', icon: '⚖️', end: false },
   { to: '/insights', label: '個人分析', icon: '📈', end: false },
   { to: '/announcements', label: '公告板', icon: '📢', end: false },
-  { to: '/ai-assist', label: 'AI 建議', icon: '🤖', end: false },
 ]
 
 const bottomNavItems = [

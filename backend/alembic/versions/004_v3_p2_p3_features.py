@@ -6,6 +6,7 @@ Revision ID: 004
 Revises: 003
 Create Date: 2026-06-04
 """
+
 from typing import Sequence, Union
 from alembic import op
 
@@ -148,10 +149,15 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     for tbl in [
-        "project_health_scores", "project_share_links",
-        "webhook_deliveries", "webhook_endpoints",
-        "announcement_reads", "announcements",
-        "task_checkins", "comment_reactions", "task_attachments",
+        "project_health_scores",
+        "project_share_links",
+        "webhook_deliveries",
+        "webhook_endpoints",
+        "announcement_reads",
+        "announcements",
+        "task_checkins",
+        "comment_reactions",
+        "task_attachments",
     ]:
         op.execute(f"DROP TABLE IF EXISTS {tbl} CASCADE")
     op.execute("ALTER TABLE tasks DROP COLUMN IF EXISTS recurrence_rule")

@@ -24,9 +24,10 @@ async def get_insights(
     thirty_days_ago = now - timedelta(days=30)
 
     # Tasks completed in last 30 days (by day)
+    day_expr = func.date_trunc("day", Task.updated_at)
     done_res = await db.execute(
         select(
-            func.date_trunc("day", Task.updated_at).label("day"),
+            day_expr.label("day"),
             func.count().label("count"),
         )
         .join(TaskAssignee, Task.id == TaskAssignee.task_id)
@@ -37,8 +38,8 @@ async def get_insights(
                 Task.updated_at >= thirty_days_ago,
             )
         )
-        .group_by(func.date_trunc("day", Task.updated_at))
-        .order_by(func.date_trunc("day", Task.updated_at))
+        .group_by(day_expr)
+        .order_by(day_expr)
     )
     done_by_day = [{"date": str(r.day.date()), "count": r.count} for r in done_res.all()]
 

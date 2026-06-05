@@ -191,8 +191,7 @@ async def time_report(
             filters.append(Task.project_id.in_(visible_ids))
     if user_id:
         filters.append(TimeLog.user_id == user_id)
-    else:
-        filters.append(TimeLog.user_id == current_user.id)
+    # No user filter: show all users in the visible projects (not restricted to self)
 
     from app.models.project import Project
     from app.models.user import User as UserModel

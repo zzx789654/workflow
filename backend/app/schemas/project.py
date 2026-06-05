@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -11,6 +11,8 @@ class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: str | None = None
     color: str = Field("#6366f1", pattern=r"^#[0-9a-fA-F]{6}$")
+    start_date: date | None = None
+    end_date: date | None = None
 
 
 class ProjectUpdate(BaseModel):
@@ -18,6 +20,8 @@ class ProjectUpdate(BaseModel):
     description: str | None = None
     color: str | None = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
     is_archived: bool | None = None
+    start_date: date | None = None
+    end_date: date | None = None
 
 
 class ProjectMemberOut(BaseModel):
@@ -35,6 +39,8 @@ class ProjectOut(BaseModel):
     description: str | None
     color: str
     is_archived: bool
+    start_date: date | None = None
+    end_date: date | None = None
     created_at: datetime
     updated_at: datetime
     member_count: int = 0
