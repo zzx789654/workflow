@@ -5,7 +5,9 @@ from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import Date as SADate
 from sqlalchemy import and_, func, select
+from sqlalchemy import cast as sa_cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -32,14 +34,16 @@ async def _check_member(project_id: uuid.UUID, user: User, db: AsyncSession):
 
 
 async def _compute_health(project_id: uuid.UUID, db: AsyncSession) -> dict:
-    today = date.today().isoformat()
+    today = date.today()
 
     # Total vs overdue tasks
     total_res = await db.execute(select(func.count()).where(Task.project_id == project_id, Task.status != "done"))
     total_open = total_res.scalar() or 0
 
     overdue_res = await db.execute(
-        select(func.count()).where(and_(Task.project_id == project_id, Task.status != "done", Task.due_date < today))
+        select(func.count()).where(
+            and_(Task.project_id == project_id, Task.status != "done", sa_cast(Task.due_date, SADate) < today)
+        )
     )
     overdue = overdue_res.scalar() or 0
     overdue_ratio = round(overdue / total_open * 100, 2) if total_open > 0 else 0.0

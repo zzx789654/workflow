@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import and_, func, select
+from sqlalchemy import Date, and_, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -58,8 +58,8 @@ async def get_workload(
             and_(
                 Task.project_id.in_(proj_ids),
                 Task.status != "done",
-                Task.due_date >= start.isoformat() if start else True,
-                Task.due_date <= end.isoformat() if end else True,
+                cast(Task.due_date, Date) >= start if start else True,
+                cast(Task.due_date, Date) <= end if end else True,
             )
         )
         .group_by(TaskAssignee.user_id, User.display_name)
