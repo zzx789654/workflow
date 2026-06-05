@@ -6,14 +6,21 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+import app.api.v1.endpoints.auth as _auth_module
 from app.db.session import Base, get_db
 from app.main import app
+from app.main import limiter as _main_limiter
 from app.models.user import User, UserRole
 
 TEST_DB_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql+asyncpg://workflow:workflow_pass@localhost:5432/workflow_test",
 )
+
+# Disable rate limiting in tests: replace key_func with unique-per-request UUID
+# so no IP ever accumulates hits against the in-memory counter.
+_auth_module.limiter._key_func = lambda request: str(uuid.uuid4())
+_main_limiter._key_func = lambda request: str(uuid.uuid4())
 
 
 @pytest_asyncio.fixture
