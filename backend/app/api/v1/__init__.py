@@ -23,6 +23,7 @@ from app.api.v1.endpoints import (
     recurring,
     search,
     subtasks,
+    system_settings,
     tasks,
     templates,
     time_logs,
@@ -67,3 +68,5 @@ router.include_router(public_share.public_router)
 router.include_router(health_score.router)
 router.include_router(insights.router)
 router.include_router(ai_assist.router)
+# System
+router.include_router(system_settings.router)

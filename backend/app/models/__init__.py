@@ -1,6 +1,7 @@
 from app.models.daily_task import DailyTask, DailyTaskLabel
 from app.models.milestone import Milestone
 from app.models.project import Project, ProjectMember
+from app.models.system_setting import SystemSetting
 from app.models.task import Task, TaskAssignee, TaskComment
 from app.models.template import ProjectTemplate, TemplateTask
 from app.models.user import User
@@ -43,4 +44,5 @@ __all__ = [
     "WebhookDelivery",
     "ProjectShareLink",
     "ProjectHealthScore",
+    "SystemSetting",
 ]
