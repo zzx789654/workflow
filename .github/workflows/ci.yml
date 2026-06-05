@@ -145,13 +145,12 @@ jobs:
       - name: Python SCA (pip-audit)
         run: |
           pip install pip-audit
-          pip-audit -r backend/requirements.txt --severity critical --ignore-vuln GHSA-jfh8-c2jp-jvjw || true
-          pip-audit -r backend/requirements.txt --severity critical --desc
+          pip-audit -r backend/requirements.txt --format=columns
       - name: npm audit
         working-directory: frontend
         run: |
           npm install
-          npm audit --audit-level=critical || echo "::warning::npm audit found issues (non-blocking for high/moderate)"
+          npm audit --audit-level=critical
 
   build-image:
     name: Build Docker Images
