@@ -336,3 +336,32 @@
 - 資料庫 Schema：backend/alembic/versions/001_initial_schema.py
 - 前端程式碼：frontend/src/
 - 測試：backend/tests/
+
+---
+
+## [2026-06-05] 輪結 Round 10 — CI 修復完成 + Docker E2E G6 通過
+
+- 現況：**G1✅ G2✅ G3✅ G4✅ G5✅（CI #51）G6✅（Docker E2E 20/20）— WorkFlow V3 正式上線**
+- CI 修復：7 輪 commits；關鍵問題：pytest-asyncio 1.4 session-scope ScopeMismatch + slowapi 429 rate limit + gitleaks toml 格式 + CVE 升版
+- CD E2E：Docker volume 重建後 alembic migrate 005 正常；workload/health_score DATE 型別比較修復；E2E 20/20 PASS
+- 退回事件：CI #51 第 7 輪才完全通過；Docker E2E 第一次因舊 volume 有 migration 殘留導致 500，重建 volume 後解決
+
+### 教訓 / 準則
+
+**教訓 51：pytest-asyncio 1.4.0 不允許 session-scoped async fixture 與 function-scoped event loop 共存**
+- 情境：`asyncio_default_fixture_loop_scope=function` + `@pytest_asyncio.fixture(scope="session")` → ScopeMismatch
+- 準則：升 pytest-asyncio 後，所有 async fixture 改為 function scope，每個測試建立獨立 engine/session，用完 dispose()
+- **How to apply：** 有 asyncpg + pytest-asyncio 的專案，升版前先確認所有 fixture scope 相容
+
+**教訓 52：slowapi Limiter.enabled=False 是停用 rate limit 的正確旗標**
+- 情境：替換 `_key_func` 不能阻止計數，因為計數在 `_check_request_limit` 的 storage 層，不在 key 生成層
+- 準則：測試環境在 module 頂層 `limiter.enabled = False`，覆蓋生產 limiter 和各 endpoint limiter
+
+**教訓 53：Docker volume 殘留舊 migration 狀態時，需 `docker compose down -v` 重建**
+- 情境：舊 volume 已有 `004_milestone_logs`（衝突版）記錄為 head，新的 `004_v3_p2_p3_features` 未執行，導致 `tasks.recurrence_rule` 欄位不存在
+- 準則：Migration chain 重構後（rename/renumber），必須 `down -v` 重建 volume 才能從新鏈頭執行
+
+**教訓 54：SQLAlchemy Task.due_date 是 VARCHAR，比較 date 物件需明確 cast**
+- 情境：Task.due_date 欄位在 ORM 中定義為 VARCHAR，PostgreSQL 不允許 `VARCHAR >= DATE`
+- 準則：`cast(Task.due_date, Date)` 或 `.due_date.cast(Date)` 顯式轉型；或在 migration 時改欄位型別為 DATE
+- **How to apply：** 所有以字串儲存日期的欄位，在比較前都要 cast

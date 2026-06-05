@@ -15,8 +15,8 @@ python-multipart==0.0.27
 openpyxl==3.1.5
 httpx==0.28.1
 slowapi==0.1.9
-pytest==9.0.3
-pytest-asyncio==1.4.0
+pytest==8.3.4
+pytest-asyncio==0.24.0
 anyio==4.7.0
 greenlet==3.2.3
 aiosqlite==0.20.0
