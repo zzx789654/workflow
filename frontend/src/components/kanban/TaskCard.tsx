@@ -111,8 +111,15 @@ export default function TaskCard({ task, onClick, isDragging = false, isBlocked 
           </div>
         </div>
       )}
-      {task.comments.length > 0 && (
-        <p className="text-xs text-gray-400 mt-1">{task.comments.length} 則評論</p>
+      {(task.comments.length > 0 || task.attachment_count > 0) && (
+        <div className="flex items-center gap-2 mt-1">
+          {task.comments.length > 0 && (
+            <span className="text-xs text-gray-400">💬 {task.comments.length}</span>
+          )}
+          {task.attachment_count > 0 && (
+            <span className="text-xs text-gray-400">📎 {task.attachment_count}</span>
+          )}
+        </div>
       )}
     </div>
   )

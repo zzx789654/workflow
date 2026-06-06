@@ -5,6 +5,7 @@ Revises:
 Create Date: 2026-06-01
 
 """
+
 from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
@@ -111,7 +112,9 @@ def upgrade() -> None:
     """)
 
     # Alembic version tracking
-    op.execute("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))")
+    op.execute(
+        "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+    )
 
 
 def downgrade() -> None:

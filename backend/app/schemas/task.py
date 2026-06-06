@@ -66,6 +66,7 @@ class TaskOut(BaseModel):
     progress: int = 0
     subtask_count: int = 0
     subtask_done_count: int = 0
+    attachment_count: int = 0
     recurrence_rule: str | None = None
     recurrence_parent_id: uuid.UUID | None = None
     created_at: datetime
@@ -100,6 +101,7 @@ class TaskOut(BaseModel):
             "progress",
             "subtask_count",
             "subtask_done_count",
+            "attachment_count",
             "recurrence_rule",
             "recurrence_parent_id",
             "created_at",

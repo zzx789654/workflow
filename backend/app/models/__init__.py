@@ -10,12 +10,8 @@ from app.models.v4_models import (
     Announcement,
     AnnouncementRead,
     CommentReaction,
-    ProjectHealthScore,
-    ProjectShareLink,
     TaskAttachment,
     TaskCheckin,
-    WebhookDelivery,
-    WebhookEndpoint,
 )
 
 __all__ = [
@@ -40,9 +36,5 @@ __all__ = [
     "TaskCheckin",
     "Announcement",
     "AnnouncementRead",
-    "WebhookEndpoint",
-    "WebhookDelivery",
-    "ProjectShareLink",
-    "ProjectHealthScore",
     "SystemSetting",
 ]

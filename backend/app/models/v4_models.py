@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, NUMERIC, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -85,75 +85,5 @@ class AnnouncementRead(Base):
     )
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     read_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
-
-
-class WebhookEndpoint(Base):
-    __tablename__ = "webhook_endpoints"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=True)
-    name: Mapped[str] = mapped_column(String(200), nullable=False)
-    url: Mapped[str] = mapped_column(Text, nullable=False)
-    secret: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    events: Mapped[list] = mapped_column(ARRAY(String), default=list, nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
-
-    creator: Mapped["User"] = relationship(foreign_keys=[created_by])  # type: ignore[name-defined]
-
-
-class WebhookDelivery(Base):
-    __tablename__ = "webhook_deliveries"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    endpoint_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("webhook_endpoints.id", ondelete="CASCADE"), nullable=False
-    )
-    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
-    payload: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
-    response_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
-
-
-class ProjectShareLink(Base):
-    __tablename__ = "project_share_links"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-    creator: Mapped["User"] = relationship(foreign_keys=[created_by])  # type: ignore[name-defined]
-
-
-class ProjectHealthScore(Base):
-    __tablename__ = "project_health_scores"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), unique=True, nullable=False
-    )
-    score: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
-    overdue_ratio: Mapped[float] = mapped_column(NUMERIC(5, 2), default=0, nullable=False)
-    milestone_rate: Mapped[float] = mapped_column(NUMERIC(5, 2), default=0, nullable=False)
-    active_member_ratio: Mapped[float] = mapped_column(NUMERIC(5, 2), default=0, nullable=False)
-    calculated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

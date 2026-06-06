@@ -11,6 +11,7 @@ class TemplateTaskCreate(BaseModel):
     day_offset_start: int = 0
     day_offset_end: int | None = None
     position: int = 0
+    depends_on_position: int | None = None
 
 
 class TemplateTaskOut(BaseModel):
@@ -21,6 +22,7 @@ class TemplateTaskOut(BaseModel):
     day_offset_start: int
     day_offset_end: int | None
     position: int
+    depends_on_position: int | None
 
     model_config = {"from_attributes": True}
 
@@ -54,4 +56,5 @@ class ProjectTemplateOut(BaseModel):
 class ApplyTemplateRequest(BaseModel):
     project_name: str = Field(..., min_length=1, max_length=200)
     project_description: str | None = None
-    start_date: str | None = None  # ISO date string, used as day-offset base
+    start_date: str | None = None   # ISO date string, used as day-offset base
+    end_date: str | None = None     # project deadline (sets project.end_date)

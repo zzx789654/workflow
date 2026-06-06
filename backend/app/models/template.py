@@ -43,5 +43,6 @@ class TemplateTask(Base):
     day_offset_start: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     day_offset_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    depends_on_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     template: Mapped["ProjectTemplate"] = relationship(back_populates="tasks")

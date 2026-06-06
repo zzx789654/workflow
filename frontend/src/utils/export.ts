@@ -18,12 +18,3 @@ export function exportCsv(rows: Record<string, unknown>[], filename: string) {
   a.click()
   URL.revokeObjectURL(url)
 }
-
-export function exportMarkdownAsPdf(markdown: string, filename: string) {
-  // Simplified: open in new window for browser print-to-PDF
-  const win = window.open('', '_blank')
-  if (!win) return
-  win.document.write(`<html><body><pre style="white-space:pre-wrap;font-family:monospace">${markdown}</pre></body></html>`)
-  win.document.close()
-  win.print()
-}

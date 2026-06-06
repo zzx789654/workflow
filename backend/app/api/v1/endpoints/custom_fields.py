@@ -15,7 +15,7 @@ from app.models.v3_models import ProjectField, TaskFieldValue
 router = APIRouter(prefix="/projects/{project_id}", tags=["custom_fields"])
 
 _VALID_TYPES = {"text", "number", "date", "select"}
-_MAX_FIELDS = 10
+_MAX_FIELDS = 5
 
 
 async def _require_manager(project_id: uuid.UUID, user: User, db: AsyncSession):

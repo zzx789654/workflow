@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.project import ProjectMember
+from app.models.task import Task
 from app.models.user import User
 from app.models.v4_models import TaskAttachment
 
@@ -105,6 +106,9 @@ async def upload_attachment(
         storage_path=str(storage_path),
     )
     db.add(attachment)
+    task_obj = await db.get(Task, task_id)
+    if task_obj:
+        task_obj.attachment_count = (task_obj.attachment_count or 0) + 1
     await db.commit()
     await db.refresh(attachment)
     return attachment
@@ -147,4 +151,7 @@ async def delete_attachment(
     except OSError:
         pass
     await db.delete(att)
+    task_obj = await db.get(Task, task_id)
+    if task_obj and task_obj.attachment_count > 0:
+        task_obj.attachment_count -= 1
     await db.commit()
