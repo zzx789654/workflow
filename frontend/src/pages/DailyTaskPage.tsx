@@ -1,16 +1,27 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { dailyTasksApi } from '../api/dailyTasks'
 import type { DailyTask, DailyTaskStatus } from '../types'
+import TaskLinkPicker from '../components/ui/TaskLinkPicker'
+
+// ─── constants ───────────────────────────────────────────────────────────────
 
 const STATUS_LABELS: Record<DailyTaskStatus, string> = {
   pending: '待辦', in_progress: '進行中', done: '完成', cancelled: '已取消',
 }
-const STATUS_COLORS: Record<DailyTaskStatus, string> = {
-  pending: 'bg-gray-100 text-gray-600',
-  in_progress: 'bg-blue-100 text-blue-600',
-  done: 'bg-green-100 text-green-600',
-  cancelled: 'bg-red-100 text-red-500',
+
+const STATUS_BADGE: Record<DailyTaskStatus, string> = {
+  pending:     'bg-amber-100  text-amber-700  border-amber-300',
+  in_progress: 'bg-blue-100   text-blue-700   border-blue-300',
+  done:        'bg-emerald-100 text-emerald-700 border-emerald-300',
+  cancelled:   'bg-red-100    text-red-600    border-red-300',
+}
+
+const STATUS_FILTER_ACTIVE: Record<DailyTaskStatus, string> = {
+  pending:     'bg-amber-500  text-white border-amber-500',
+  in_progress: 'bg-blue-500   text-white border-blue-500',
+  done:        'bg-emerald-500 text-white border-emerald-500',
+  cancelled:   'bg-red-500    text-white border-red-500',
 }
 
 const NOTIFY_OPTIONS = [
@@ -20,9 +31,11 @@ const NOTIFY_OPTIONS = [
   { value: '7', label: '7 天前' },
 ]
 
-const today = () => format(new Date(), 'yyyy-MM-dd')
+const PAGE_SIZE = 50
 
-// Compute notify_at datetime from due date + days-before offset
+const today = () => format(new Date(), 'yyyy-MM-dd')
+const todayDate = () => `${format(new Date(), 'yyyy-MM-dd')}T00:00:00`
+
 function computeNotifyAt(date: string, daysBefore: string): string | undefined {
   if (!date || !daysBefore) return undefined
   const d = new Date(date)
@@ -30,15 +43,94 @@ function computeNotifyAt(date: string, daysBefore: string): string | undefined {
   return `${format(d, 'yyyy-MM-dd')}T09:00:00`
 }
 
+type LinkVal = { taskId: string; taskTitle: string; projectName: string } | null
+
+// ─── LabelInput ───────────────────────────────────────────────────────────────
+// Comma-separated tag input with dropdown suggestions from existing labels.
+
+function LabelInput({
+  value, onChange, suggestions, placeholder = '標籤（逗號分隔）', className = '',
+}: {
+  value: string
+  onChange: (v: string) => void
+  suggestions: string[]
+  placeholder?: string
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Current token being typed (after the last comma)
+  const currentToken = value.split(',').pop()?.trimStart() ?? ''
+
+  const filtered = useMemo(() => {
+    if (!currentToken) return suggestions
+    return suggestions.filter(s => s.toLowerCase().includes(currentToken.toLowerCase()))
+  }, [currentToken, suggestions])
+
+  // Close when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const selectSuggestion = (label: string) => {
+    const parts = value.split(',').map(s => s.trim()).filter(Boolean)
+    // Replace the last (in-progress) token with the selected suggestion
+    parts.pop()
+    parts.push(label)
+    onChange(parts.join(', ') + ', ')
+    setOpen(false)
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <input
+        className={className}
+        placeholder={placeholder}
+        value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        autoComplete="off"
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute left-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-lg min-w-full max-h-40 overflow-y-auto">
+          {filtered.map(label => (
+            <button
+              key={label}
+              type="button"
+              onMouseDown={e => { e.preventDefault(); selectSuggestion(label) }}
+              className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 flex items-center gap-2"
+            >
+              <span className="text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded-full border border-indigo-100">{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── DailyTaskModal ───────────────────────────────────────────────────────────
+
 function DailyTaskModal({
-  task, onClose, onSave,
-}: { task?: DailyTask | null; onClose: () => void; onSave: (keepOpen?: boolean) => void }) {
+  task, onClose, onSave, labelSuggestions,
+}: {
+  task?: DailyTask | null
+  onClose: () => void
+  onSave: (keepOpen?: boolean) => void
+  labelSuggestions: string[]
+}) {
   const isNew = !task
   const [title, setTitle] = useState(task?.title ?? '')
   const [description, setDescription] = useState(task?.description ?? '')
   const [status, setStatus] = useState<DailyTaskStatus>(task?.status ?? 'pending')
   const [date, setDate] = useState(task?.date ?? today())
-  // Notify: derive days-before from existing notify_at if available
   const [notifyDays, setNotifyDays] = useState<string>(() => {
     if (!task?.notify_at || !task?.date) return ''
     const notifyDate = new Date(task.notify_at.slice(0, 10))
@@ -53,6 +145,11 @@ function DailyTaskModal({
     task?.work_minutes ? Math.round(task.work_minutes / 60 * 10) / 10 : 0
   )
   const [labelsStr, setLabelsStr] = useState(task?.labels.join(', ') ?? '')
+  const [linkVal, setLinkVal] = useState<LinkVal>(
+    task?.linked_task
+      ? { taskId: task.linked_task.id, taskTitle: task.linked_task.title, projectName: task.linked_task.project_name }
+      : null
+  )
   const [loading, setLoading] = useState(false)
   const [continuous, setContinuous] = useState(false)
   const [addedCount, setAddedCount] = useState(0)
@@ -63,17 +160,14 @@ function DailyTaskModal({
     setLoading(true)
     const labels = labelsStr.split(',').map(s => s.trim()).filter(Boolean)
     const notify_at = computeNotifyAt(date, notifyDays)
+    const terminal = status === 'done' || status === 'cancelled'
+    const wasTerminal = task?.status === 'done' || task?.status === 'cancelled'
+    const ended_at = terminal && !wasTerminal ? todayDate() : undefined
     const payload = {
-      title,
-      description: description || undefined,
-      status,
-      progress: 0,
-      date,
-      work_minutes: Math.round(workHours * 60),
-      labels,
-      notify_at,
-      started_at: undefined,
-      ended_at: undefined,
+      title, description: description || undefined, status, progress: 0, date,
+      work_minutes: Math.round(workHours * 60), labels, notify_at,
+      started_at: undefined, ended_at,
+      linked_task_id: linkVal?.taskId ?? null,
     }
     try {
       if (task) {
@@ -83,12 +177,11 @@ function DailyTaskModal({
         await dailyTasksApi.create({ ...payload, date })
         if (continuous) {
           setTitle('')
+          setLinkVal(null)
           setAddedCount(c => c + 1)
           onSave(true)
           setTimeout(() => titleRef.current?.focus(), 50)
-        } else {
-          onSave()
-        }
+        } else { onSave() }
       }
     } finally { setLoading(false) }
   }
@@ -106,47 +199,56 @@ function DailyTaskModal({
           <form onSubmit={handleSubmit} className="space-y-3">
             <div>
               <label className="text-sm font-medium text-gray-700">標題</label>
-              <input ref={titleRef} className="input mt-1 w-full" value={title} onChange={e => setTitle(e.target.value)} required autoFocus />
+              <input ref={titleRef} className="input mt-1 w-full" value={title}
+                onChange={e => setTitle(e.target.value)} required autoFocus />
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700">說明</label>
-              <textarea className="input mt-1 w-full resize-none" rows={2} value={description} onChange={e => setDescription(e.target.value)} />
+              <textarea className="input mt-1 w-full resize-none" rows={2} value={description}
+                onChange={e => setDescription(e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-sm font-medium text-gray-700">日期</label>
-                <input className="input mt-1 w-full" type="date" value={date} onChange={e => setDate(e.target.value)} required />
+                <input className="input mt-1 w-full" type="date" value={date}
+                  onChange={e => setDate(e.target.value)} required />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">狀態</label>
-                <select className="input mt-1 w-full" value={status} onChange={e => setStatus(e.target.value as DailyTaskStatus)}>
-                  {(Object.keys(STATUS_LABELS) as DailyTaskStatus[]).map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+                <select className="input mt-1 w-full" value={status}
+                  onChange={e => setStatus(e.target.value as DailyTaskStatus)}>
+                  {(Object.keys(STATUS_LABELS) as DailyTaskStatus[]).map(s =>
+                    <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
                 </select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-sm font-medium text-gray-700">通知時間</label>
-                <select className="input mt-1 w-full" value={notifyDays} onChange={e => setNotifyDays(e.target.value)}>
+                <select className="input mt-1 w-full" value={notifyDays}
+                  onChange={e => setNotifyDays(e.target.value)}>
                   {NOTIFY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">工作時數</label>
-                <input
-                  className="input mt-1 w-full"
-                  type="number"
-                  min={0}
-                  step={0.5}
-                  value={workHours}
-                  onChange={e => setWorkHours(+e.target.value)}
-                  placeholder="例：1.5"
-                />
+                <input className="input mt-1 w-full" type="number" min={0} step={0.5}
+                  value={workHours} onChange={e => setWorkHours(+e.target.value)} placeholder="例：1.5" />
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700">標籤（逗號分隔）</label>
-              <input className="input mt-1 w-full" placeholder="例：開發, 會議, 文件" value={labelsStr} onChange={e => setLabelsStr(e.target.value)} />
+              <label className="text-sm font-medium text-gray-700 block mb-1">標籤（逗號分隔）</label>
+              <LabelInput
+                value={labelsStr}
+                onChange={setLabelsStr}
+                suggestions={labelSuggestions}
+                placeholder="例：開發, 會議, 文件"
+                className="input w-full"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">關聯專案任務</label>
+              <TaskLinkPicker value={linkVal} onChange={setLinkVal} />
             </div>
             {isNew && (
               <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
@@ -169,38 +271,248 @@ function DailyTaskModal({
   )
 }
 
-interface ImportResult {
-  created: number
-  errors: string[]
-  total_rows: number
+// ─── ImportResult ─────────────────────────────────────────────────────────────
+
+interface ImportResult { created: number; errors: string[]; total_rows: number }
+
+// ─── TaskRow ──────────────────────────────────────────────────────────────────
+
+function TaskRow({ task, onUpdated, onDeleted, onEdit }: {
+  task: DailyTask
+  onUpdated: () => void
+  onDeleted: () => void
+  onEdit: () => void
+}) {
+  const [hours, setHours] = useState(task.work_minutes ? Math.round(task.work_minutes / 60 * 10) / 10 : 0)
+  const [saving, setSaving] = useState(false)
+  const [linking, setLinking] = useState(false)
+
+  const handleStatusChange = async (status: DailyTaskStatus) => {
+    const terminal = status === 'done' || status === 'cancelled'
+    const wasTerminal = task.status === 'done' || task.status === 'cancelled'
+    const ended_at = terminal && !wasTerminal ? todayDate() : undefined
+    await dailyTasksApi.update(task.id, { status, ended_at } as any)
+    onUpdated()
+  }
+
+  const handleHoursBlur = async () => {
+    const newMinutes = Math.round(hours * 60)
+    if (newMinutes === task.work_minutes) return
+    setSaving(true)
+    try {
+      await dailyTasksApi.update(task.id, { work_minutes: newMinutes } as any)
+      onUpdated()
+    } finally { setSaving(false) }
+  }
+
+  const handleLinkChange = async (val: LinkVal) => {
+    await dailyTasksApi.update(task.id, { linked_task_id: val?.taskId ?? null } as any)
+    onUpdated()
+    setLinking(false)
+  }
+
+  const isDone = task.status === 'done'
+  const isCancelled = task.status === 'cancelled'
+  const dimmed = isDone || isCancelled
+
+  return (
+    <div className={`bg-white rounded-xl border px-4 py-3 hover:shadow-sm transition-shadow ${
+      dimmed ? 'border-gray-100 opacity-55' : 'border-gray-200'
+    }`}>
+      <div className="flex items-start gap-3">
+        {/* 狀態下拉 */}
+        <div className="flex-shrink-0 mt-0.5">
+          <select
+            value={task.status}
+            onChange={e => handleStatusChange(e.target.value as DailyTaskStatus)}
+            className={`text-xs px-2.5 py-1 rounded-full font-semibold border cursor-pointer outline-none ${STATUS_BADGE[task.status]}`}
+          >
+            {(Object.keys(STATUS_LABELS) as DailyTaskStatus[]).map(s =>
+              <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+            )}
+          </select>
+        </div>
+
+        {/* 標題 + 說明 + 標籤 + 關聯 */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <p className={`font-semibold text-base leading-snug ${
+              dimmed ? 'line-through text-gray-400' : 'text-gray-900'
+            }`}>
+              {task.title}
+            </p>
+            <span className="text-xs text-gray-500 flex-shrink-0">{task.date}</span>
+            {task.ended_at && (isDone || isCancelled) && (
+              <span className={`text-xs flex-shrink-0 ${isDone ? 'text-emerald-500' : 'text-red-400'}`}>
+                {isDone ? '完成於' : '取消於'} {task.ended_at.slice(0, 10)}
+              </span>
+            )}
+          </div>
+          {task.description && (
+            <p className="text-sm text-gray-500 mt-0.5 line-clamp-1">{task.description}</p>
+          )}
+
+          {/* 標籤 + 關聯 */}
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            {task.labels.map(l => (
+              <span key={l} className="text-xs bg-indigo-50 text-indigo-600 font-medium px-2 py-0.5 rounded-full border border-indigo-100">{l}</span>
+            ))}
+            {task.linked_task ? (
+              <span className="inline-flex items-center gap-1 text-xs bg-violet-50 text-violet-700 font-medium px-2 py-0.5 rounded-full border border-violet-100">
+                🔗 {task.linked_task.project_name} → {task.linked_task.title}
+                <button
+                  type="button"
+                  onClick={() => handleLinkChange(null)}
+                  className="ml-0.5 text-violet-300 hover:text-red-400 leading-none"
+                  title="移除關聯"
+                >✕</button>
+              </span>
+            ) : (
+              linking ? (
+                <div className="w-56">
+                  <TaskLinkPicker value={null} onChange={v => { handleLinkChange(v) }} />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setLinking(true)}
+                  className="text-xs text-gray-500 hover:text-indigo-500 transition-colors"
+                  title="關聯專案任務"
+                >+ 關聯任務</button>
+              )
+            )}
+          </div>
+        </div>
+
+        {/* 工時 inline 輸入 */}
+        <div className="flex items-center gap-1 flex-shrink-0" title="工作時數">
+          <input
+            type="number"
+            min={0}
+            step={0.5}
+            value={hours}
+            onChange={e => setHours(+e.target.value)}
+            onBlur={handleHoursBlur}
+            className={`w-14 text-sm text-center border rounded-lg px-1 py-1 outline-none focus:border-primary-400 transition-colors ${saving ? 'opacity-50' : 'border-gray-200'}`}
+          />
+          <span className="text-xs text-gray-400">h</span>
+        </div>
+
+        {/* 操作 */}
+        <div className="flex gap-2 flex-shrink-0">
+          <button className="text-xs text-blue-500 hover:text-blue-700 py-1" onClick={onEdit}>編輯</button>
+          <button
+            className="text-xs text-red-400 hover:text-red-600 py-1"
+            onClick={async () => {
+              if (!confirm('確定刪除？')) return
+              await dailyTasksApi.delete(task.id)
+              onDeleted()
+            }}
+          >刪除</button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
-export default function DailyTaskPage() {
-  const [tasks, setTasks] = useState<DailyTask[]>([])
-  const [loading, setLoading] = useState(true)
-  const [selectedDate, setSelectedDate] = useState(today())
-  const [filterLabel, setFilterLabel] = useState('')
-  const [showModal, setShowModal] = useState(false)
-  const [editing, setEditing] = useState<DailyTask | null>(null)
-  const [importing, setImporting] = useState(false)
-  const [importResult, setImportResult] = useState<ImportResult | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+// ─── InlineAddForm ────────────────────────────────────────────────────────────
 
-  const load = async () => {
+function InlineAddForm({ onAdded, labelSuggestions }: { onAdded: () => void; labelSuggestions: string[] }) {
+  const [title, setTitle] = useState('')
+  const [labelsStr, setLabelsStr] = useState('')
+  const [linkVal, setLinkVal] = useState<LinkVal>(null)
+  const [loading, setLoading] = useState(false)
+  const titleRef = useRef<HTMLInputElement>(null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!title.trim()) return
     setLoading(true)
     try {
-      const res = await dailyTasksApi.list({ date: selectedDate, label: filterLabel || undefined })
-      setTasks(res.data)
+      await dailyTasksApi.create({
+        title: title.trim(),
+        status: 'pending',
+        progress: 0,
+        date: today(),
+        work_minutes: 0,
+        labels: labelsStr.split(',').map(s => s.trim()).filter(Boolean),
+        linked_task_id: linkVal?.taskId ?? null,
+      })
+      setTitle('')
+      setLabelsStr('')
+      setLinkVal(null)
+      onAdded()
+      titleRef.current?.focus()
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [selectedDate, filterLabel])
+  return (
+    <form onSubmit={handleSubmit} className="bg-white border border-dashed border-gray-300 rounded-xl px-4 py-3 mb-4 hover:border-primary-400 transition-colors">
+      <div className="flex gap-2 items-center">
+        <input
+          ref={titleRef}
+          className="flex-1 text-sm outline-none placeholder-gray-400 bg-transparent text-gray-800"
+          placeholder="新增作業…"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          autoFocus
+        />
+        <LabelInput
+          value={labelsStr}
+          onChange={setLabelsStr}
+          suggestions={labelSuggestions}
+          placeholder="標籤（逗號分隔）"
+          className="w-44 text-xs border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-primary-400 text-gray-700 placeholder-gray-300"
+        />
+        <button
+          type="submit"
+          disabled={loading || !title.trim()}
+          className="btn-primary text-sm px-4 flex-shrink-0"
+        >
+          {loading ? '…' : '新增'}
+        </button>
+      </div>
+      <div className="mt-2">
+        <TaskLinkPicker value={linkVal} onChange={setLinkVal} />
+      </div>
+    </form>
+  )
+}
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('確定刪除？')) return
-    await dailyTasksApi.delete(id)
-    load()
-  }
+// ─── DailyTaskPage ────────────────────────────────────────────────────────────
+
+export default function DailyTaskPage() {
+  const [allTasks, setAllTasks] = useState<DailyTask[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filterLabel, setFilterLabel] = useState('')
+  const [filterStatus, setFilterStatus] = useState<DailyTaskStatus | null>(null)
+  const [editing, setEditing] = useState<DailyTask | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  const [renderLimit, setRenderLimit] = useState(PAGE_SIZE)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setRenderLimit(PAGE_SIZE)
+    try {
+      const res = await dailyTasksApi.list({ pending_only: true, label: filterLabel || undefined })
+      setAllTasks(res.data)
+    } finally { setLoading(false) }
+  }, [filterLabel])
+
+  useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!bottomRef.current) return
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setRenderLimit(n => n + PAGE_SIZE) },
+      { rootMargin: '200px' }
+    )
+    obs.observe(bottomRef.current)
+    return () => obs.disconnect()
+  }, [loading])
 
   const handleDownloadTemplate = async () => {
     const res = await dailyTasksApi.downloadTemplate()
@@ -233,33 +545,57 @@ export default function DailyTaskPage() {
     }
   }
 
-  const allLabels = Array.from(new Set(tasks.flatMap(t => t.labels)))
+  const counts = useMemo(() => {
+    const c = { pending: 0, in_progress: 0, done: 0, cancelled: 0 } as Record<DailyTaskStatus, number>
+    for (const t of allTasks) c[t.status]++
+    return c
+  }, [allTasks])
+
+  const totalHours = useMemo(
+    () => allTasks.reduce((s, t) => s + (t.work_minutes ?? 0), 0) / 60,
+    [allTasks]
+  )
+
+  // All unique labels across all tasks — used for suggestions and filter pills
+  const allLabels = useMemo(
+    () => Array.from(new Set(allTasks.flatMap(t => t.labels))).sort(),
+    [allTasks]
+  )
+
+  const filteredTasks = useMemo(() => {
+    let list = allTasks
+    if (filterStatus) list = list.filter(t => t.status === filterStatus)
+    if (filterLabel) list = list.filter(t => t.labels.includes(filterLabel))
+    return list
+  }, [allTasks, filterStatus, filterLabel])
+
+  const visibleTasks = filteredTasks.slice(0, renderLimit)
+  const hasMore = renderLimit < filteredTasks.length
+
+  const hasFilter = filterStatus !== null || filterLabel !== ''
 
   return (
     <div className="max-w-4xl mx-auto">
+      {/* Header */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-900">日常作業</h1>
         <div className="flex items-center gap-2 flex-wrap">
-          <button className="btn-secondary text-sm" onClick={handleDownloadTemplate} title="下載 Excel 範本">
-            下載範本
-          </button>
+          <button className="btn-secondary text-sm" onClick={handleDownloadTemplate}>下載範本</button>
           <label className={`btn-secondary text-sm cursor-pointer ${importing ? 'opacity-50 pointer-events-none' : ''}`}>
             {importing ? '匯入中…' : '匯入 Excel'}
-            <input ref={fileInputRef} type="file" accept=".xlsx" className="hidden" onChange={handleImportFile} disabled={importing} />
+            <input ref={fileInputRef} type="file" accept=".xlsx" className="hidden"
+              onChange={handleImportFile} disabled={importing} />
           </label>
-          <button className="btn-primary text-sm" onClick={() => { setEditing(null); setShowModal(true) }}>+ 新增作業</button>
         </div>
       </div>
 
-      {/* 匯入結果提示 */}
+      {/* 匯入結果 */}
       {importResult && (
         <div className={`mb-5 p-4 rounded-xl border text-sm ${importResult.created > 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
           <div className="flex items-start justify-between">
             <div>
               <p className={`font-medium ${importResult.created > 0 ? 'text-green-700' : 'text-red-700'}`}>
-                {importResult.created > 0
-                  ? `成功匯入 ${importResult.created} / ${importResult.total_rows} 筆`
-                  : '匯入失敗'}
+                {importResult.created > 0 ? `成功匯入 ${importResult.created} / ${importResult.total_rows} 筆` : '匯入失敗'}
               </p>
               {importResult.errors.length > 0 && (
                 <ul className="mt-2 space-y-0.5">
@@ -272,74 +608,99 @@ export default function DailyTaskPage() {
         </div>
       )}
 
-      {/* 篩選列 */}
-      <div className="flex gap-3 mb-5 flex-wrap">
-        <input type="date" className="input w-40" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} />
-        <select className="input w-36" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
-          <option value="">全部標籤</option>
-          {allLabels.map(l => <option key={l} value={l}>{l}</option>)}
-        </select>
-        <button className="btn-secondary text-sm" onClick={() => setSelectedDate(today())}>今天</button>
+      {/* 標籤快速篩選列（有標籤時才顯示） */}
+      {allLabels.length > 0 && (
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          <span className="text-xs text-gray-400 flex-shrink-0">標籤篩選</span>
+          {allLabels.map(l => (
+            <button
+              key={l}
+              onClick={() => setFilterLabel(filterLabel === l ? '' : l)}
+              className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-colors ${
+                filterLabel === l
+                  ? 'bg-indigo-500 text-white border-indigo-500'
+                  : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'
+              }`}
+            >
+              {l}
+            </button>
+          ))}
+          {filterLabel && (
+            <button onClick={() => setFilterLabel('')} className="text-xs text-gray-400 hover:text-gray-600">✕ 清除</button>
+          )}
+        </div>
+      )}
+
+      {/* 統計卡 + 狀態篩選按鈕 */}
+      <div className="grid grid-cols-5 gap-3 mb-5">
+        {(['pending', 'in_progress', 'done', 'cancelled'] as DailyTaskStatus[]).map(s => {
+          const isActive = filterStatus === s
+          return (
+            <button
+              key={s}
+              onClick={() => setFilterStatus(isActive ? null : s)}
+              className={`card text-center py-3 transition-all cursor-pointer border-2 ${
+                isActive ? STATUS_FILTER_ACTIVE[s] + ' shadow-md scale-[1.03]' : 'border-transparent hover:border-gray-200'
+              }`}
+            >
+              <p className={`text-2xl font-bold ${isActive ? 'text-white' : 'text-gray-900'}`}>{counts[s]}</p>
+              <p className={`text-xs mt-1 font-medium ${isActive ? 'text-white/90' : 'text-gray-500'}`}>{STATUS_LABELS[s]}</p>
+            </button>
+          )
+        })}
+        <div className="card text-center py-3">
+          <p className="text-2xl font-bold text-primary-600">{Math.round(totalHours * 10) / 10}</p>
+          <p className="text-xs text-gray-500 mt-1 font-medium">工時小計(h)</p>
+        </div>
       </div>
 
-      {/* 統計卡 */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        {(['pending', 'in_progress', 'done', 'cancelled'] as DailyTaskStatus[]).map(s => (
-          <div key={s} className="card text-center">
-            <p className="text-2xl font-bold text-gray-900">{tasks.filter(t => t.status === s).length}</p>
-            <p className="text-xs text-gray-500 mt-1">{STATUS_LABELS[s]}</p>
-          </div>
-        ))}
-      </div>
+      {/* 行內新增表單 */}
+      <InlineAddForm onAdded={load} labelSuggestions={allLabels} />
 
       {/* 任務列表 */}
       {loading ? (
         <div className="text-center py-12 text-gray-400">載入中…</div>
-      ) : tasks.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">當日無作業，點擊「新增作業」開始記錄</div>
-      ) : (
-        <div className="space-y-3">
-          {tasks.map(t => (
-            <div key={t.id} className="card hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[t.status]}`}>
-                      {STATUS_LABELS[t.status]}
-                    </span>
-                    {t.labels.map(l => (
-                      <span key={l} className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{l}</span>
-                    ))}
-                  </div>
-                  <p className="font-semibold text-gray-900 truncate">{t.title}</p>
-                  {t.description && <p className="text-sm text-gray-500 mt-0.5 line-clamp-1">{t.description}</p>}
-                  <div className="flex items-center gap-4 mt-2 text-xs text-gray-400 flex-wrap">
-                    {t.work_minutes > 0 && (
-                      <span>{Math.round(t.work_minutes / 60 * 10) / 10}h</span>
-                    )}
-                    {t.notify_at && (
-                      <span>通知 {t.notify_at.slice(0, 10)}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <button className="text-xs text-blue-500 hover:text-blue-700" onClick={() => { setEditing(t); setShowModal(true) }}>編輯</button>
-                  <button className="text-xs text-red-400 hover:text-red-600" onClick={() => handleDelete(t.id)}>刪除</button>
-                </div>
-              </div>
-            </div>
-          ))}
+      ) : filteredTasks.length === 0 ? (
+        <div className="text-center py-8 text-gray-400">
+          {hasFilter ? '目前篩選條件無符合作業' : '目前無未完成作業，在上方輸入標題後按新增'}
         </div>
+      ) : (
+        <>
+          {hasFilter && (
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm text-gray-500">共 {filteredTasks.length} 筆</span>
+              <button className="text-xs text-gray-400 hover:text-gray-600" onClick={() => { setFilterStatus(null); setFilterLabel('') }}>
+                清除全部篩選 ✕
+              </button>
+            </div>
+          )}
+          <div className="space-y-2">
+            {visibleTasks.map(t => (
+              <TaskRow
+                key={t.id}
+                task={t}
+                onUpdated={load}
+                onDeleted={load}
+                onEdit={() => setEditing(t)}
+              />
+            ))}
+          </div>
+          <div ref={bottomRef} className="h-4" />
+          {hasMore && (
+            <div className="text-center py-4 text-sm text-gray-400">
+              顯示 {visibleTasks.length} / {filteredTasks.length} 筆，向下捲動載入更多…
+            </div>
+          )}
+        </>
       )}
 
-      {showModal && (
+      {/* 編輯 modal */}
+      {editing && (
         <DailyTaskModal
           task={editing}
-          onClose={() => { setShowModal(false); setEditing(null) }}
-          onSave={(keepOpen) => {
-            load()
-            if (!keepOpen) { setShowModal(false); setEditing(null) }
-          }}
+          onClose={() => setEditing(null)}
+          onSave={() => { load(); setEditing(null) }}
+          labelSuggestions={allLabels}
         />
       )}
     </div>

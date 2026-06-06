@@ -21,11 +21,25 @@ export interface Project {
   description: string | null
   color: string
   is_archived: boolean
+  recurrence_rule: string | null
   start_date: string | null
   end_date: string | null
   created_at: string
   updated_at: string
   member_count: number
+}
+
+export interface ProjectOverviewItem {
+  id: string
+  name: string
+  description: string | null
+  color: string
+  is_archived: boolean
+  start_date: string | null
+  end_date: string | null
+  member_count: number
+  task_total: number
+  task_done: number
 }
 
 export interface ProjectMember {
@@ -103,6 +117,7 @@ export interface Task {
   progress: number
   subtask_count: number
   subtask_done_count: number
+  attachment_count: number
   recurrence_rule: string | null
   recurrence_parent_id: string | null
   created_at: string
@@ -115,6 +130,13 @@ export interface Token {
   access_token: string
   refresh_token: string
   token_type: string
+}
+
+export interface LinkedTaskInfo {
+  id: string
+  title: string
+  project_id: string
+  project_name: string
 }
 
 export interface DailyTask {
@@ -132,6 +154,8 @@ export interface DailyTask {
   created_at: string
   updated_at: string
   labels: string[]
+  linked_task_id: string | null
+  linked_task: LinkedTaskInfo | null
 }
 
 export interface TemplateTask {
@@ -142,6 +166,7 @@ export interface TemplateTask {
   day_offset_start: number
   day_offset_end: number | null
   position: number
+  depends_on_position: number | null
 }
 
 export interface ProjectTemplate {
@@ -176,6 +201,7 @@ export interface MilestoneLog {
   completed_by: string | null
   completed_by_name: string | null
   work_minutes: number
+  daily_task_minutes: number
   note: string | null
   completed_at: string
 }

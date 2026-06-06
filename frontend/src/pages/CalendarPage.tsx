@@ -70,114 +70,101 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      <div className="flex gap-4">
-        {/* 月曆本體 */}
-        <div className="flex-1 min-w-0">
-          {/* 星期標題 */}
-          <div className="grid grid-cols-7 mb-1">
-            {['日', '一', '二', '三', '四', '五', '六'].map(d => (
-              <div key={d} className="text-xs font-medium text-gray-400 text-center py-1">{d}</div>
-            ))}
-          </div>
-
-          {/* 日期格子 */}
-          <div className="grid grid-cols-7 gap-0.5">
-            {cells.map((day, i) => {
-              if (!day) return <div key={`e-${i}`} className="bg-gray-50 rounded-lg min-h-[80px]" />
-              const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-              const dayEvents = eventsByDay[dateStr] ?? []
-              const isToday = dateStr === format(new Date(), 'yyyy-MM-dd')
-              const isSelected = selectedDay === dateStr
-
-              return (
-                <div
-                  key={dateStr}
-                  className={`rounded-lg min-h-[80px] p-1 cursor-pointer transition-colors ${
-                    isSelected ? 'ring-2 ring-primary-500 bg-primary-50'
-                    : isToday ? 'bg-indigo-50'
-                    : 'bg-white hover:bg-gray-50'
-                  } border border-gray-100`}
-                  onClick={() => setSelectedDay(isSelected ? null : dateStr)}
-                >
-                  <div className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${
-                    isToday ? 'bg-primary-600 text-white' : 'text-gray-700'
-                  }`}>{day}</div>
-                  <div className="space-y-0.5">
-                    {dayEvents.slice(0, 3).map(ev => (
-                      <div key={ev.id}
-                        className={`text-xs px-1 py-0.5 rounded truncate flex items-center gap-1 ${TYPE_COLORS[ev.type]}`}
-                        title={ev.project_name ? `[${ev.project_name}] ${ev.title}` : ev.title}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${STATUS_DOT[ev.status] ?? 'bg-gray-400'}`} />
-                        <span className="truncate">
-                          {ev.type === 'task' && ev.project_name && (
-                            <span className="opacity-60 mr-0.5">[{ev.project_name}]</span>
-                          )}
-                          {ev.title}
-                        </span>
-                      </div>
-                    ))}
-                    {dayEvents.length > 3 && (
-                      <p className="text-xs text-gray-400 pl-1">+{dayEvents.length - 3} 更多</p>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-
-          {/* 圖例 */}
-          <div className="flex gap-4 mt-3 text-xs text-gray-400 flex-wrap">
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-100 border border-indigo-200" />專案任務</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 border border-emerald-200" />日常作業</span>
-          </div>
+      {/* 月曆本體 */}
+      <div>
+        {/* 星期標題 */}
+        <div className="grid grid-cols-7 mb-1">
+          {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+            <div key={d} className="text-xs font-medium text-gray-400 text-center py-1">{d}</div>
+          ))}
         </div>
 
-        {/* 右側：選取日期的事項清單 */}
-        {selectedDay && (
-          <div className="w-72 flex-shrink-0">
-            <div className="card h-full">
-              <h3 className="font-semibold text-gray-900 mb-3">
-                {format(parseISO(selectedDay), 'M月d日')} — {selectedDayEvents.length} 件
-              </h3>
-              {selectedDayEvents.length === 0 ? (
-                <p className="text-sm text-gray-400">當日無事項</p>
-              ) : (
-                <div className="space-y-2 overflow-y-auto max-h-[500px]">
-                  {selectedDayEvents.map(ev => (
-                    <div key={ev.id} className={`p-2 rounded-lg border ${ev.type === 'task' ? 'border-indigo-100 bg-indigo-50' : 'border-emerald-100 bg-emerald-50'}`}>
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <span className={`w-2 h-2 rounded-full ${STATUS_DOT[ev.status] ?? 'bg-gray-400'}`} />
-                        <span className={`text-xs font-medium ${ev.type === 'task' ? 'text-indigo-600' : 'text-emerald-600'}`}>
-                          {ev.type === 'task' ? `任務${ev.project_name ? ` · ${ev.project_name}` : ''}` : '日常作業'}
-                        </span>
-                      </div>
-                      <p className="text-sm font-medium text-gray-800">{ev.title}</p>
-                      {ev.progress > 0 && (
-                        <div className="mt-1.5">
-                          <div className="flex justify-between text-xs text-gray-400 mb-0.5">
-                            <span>進度</span><span>{ev.progress}%</span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-1">
-                            <div className="bg-primary-500 h-1 rounded-full" style={{ width: `${ev.progress}%` }} />
-                          </div>
-                        </div>
-                      )}
-                      {ev.labels.length > 0 && (
-                        <div className="flex gap-1 flex-wrap mt-1">
-                          {ev.labels.map(l => (
-                            <span key={l} className="text-xs bg-white border border-gray-200 px-1.5 py-0.5 rounded-full text-gray-500">{l}</span>
-                          ))}
-                        </div>
-                      )}
+        {/* 日期格子 */}
+        <div className="grid grid-cols-7 gap-0.5">
+          {cells.map((day, i) => {
+            if (!day) return <div key={`e-${i}`} className="bg-gray-50 rounded-lg min-h-[80px]" />
+            const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+            const dayEvents = eventsByDay[dateStr] ?? []
+            const isToday = dateStr === format(new Date(), 'yyyy-MM-dd')
+            const isSelected = selectedDay === dateStr
+
+            return (
+              <div
+                key={dateStr}
+                className={`rounded-lg min-h-[80px] p-1 cursor-pointer transition-colors ${
+                  isSelected ? 'ring-2 ring-primary-500 bg-primary-50'
+                  : isToday ? 'bg-indigo-50'
+                  : 'bg-white hover:bg-gray-50'
+                } border border-gray-100`}
+                onClick={() => setSelectedDay(isSelected ? null : dateStr)}
+              >
+                <div className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${
+                  isToday ? 'bg-primary-600 text-white' : 'text-gray-700'
+                }`}>{day}</div>
+                <div className="space-y-0.5">
+                  {dayEvents.slice(0, 3).map(ev => (
+                    <div key={ev.id}
+                      className={`text-xs px-1 py-0.5 rounded truncate flex items-center gap-1 ${TYPE_COLORS[ev.type]}`}
+                      title={ev.project_name ? `[${ev.project_name}] ${ev.title}` : ev.title}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${STATUS_DOT[ev.status] ?? 'bg-gray-400'}`} />
+                      <span className="truncate">
+                        {ev.type === 'task' && ev.project_name && (
+                          <span className="opacity-60 mr-0.5">[{ev.project_name}]</span>
+                        )}
+                        {ev.title}
+                      </span>
                     </div>
                   ))}
+                  {dayEvents.length > 3 && (
+                    <p className="text-xs text-gray-400 pl-1">+{dayEvents.length - 3} 更多</p>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
-        )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* 圖例 */}
+        <div className="flex gap-4 mt-3 text-xs text-gray-400 flex-wrap">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-100 border border-indigo-200" />專案任務</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 border border-emerald-200" />日常作業</span>
+        </div>
       </div>
+
+      {/* 下方：選取日期的事項清單 */}
+      {selectedDay && (
+        <div className="mt-6 border-t border-gray-100 pt-5">
+          <h3 className="font-semibold text-gray-900 mb-4">
+            {format(parseISO(selectedDay), 'M月d日')}
+            <span className="text-sm font-normal text-gray-400 ml-2">{selectedDayEvents.length} 件事項</span>
+          </h3>
+          {selectedDayEvents.length === 0 ? (
+            <p className="text-sm text-gray-400">當日無事項</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {selectedDayEvents.map(ev => (
+                <div key={ev.id} className={`p-3 rounded-xl border ${ev.type === 'task' ? 'border-indigo-100 bg-indigo-50' : 'border-emerald-100 bg-emerald-50'}`}>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_DOT[ev.status] ?? 'bg-gray-400'}`} />
+                    <span className={`text-xs font-medium ${ev.type === 'task' ? 'text-indigo-600' : 'text-emerald-600'}`}>
+                      {ev.type === 'task' ? `任務${ev.project_name ? ` · ${ev.project_name}` : ''}` : '日常作業'}
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium text-gray-800 leading-snug">{ev.title}</p>
+                  {ev.labels.length > 0 && (
+                    <div className="flex gap-1 flex-wrap mt-2">
+                      {ev.labels.map(l => (
+                        <span key={l} className="text-xs bg-white border border-gray-200 px-1.5 py-0.5 rounded-full text-gray-500">{l}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {loading && (
         <div className="fixed inset-0 bg-white/50 flex items-center justify-center z-50">

@@ -2,16 +2,49 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { templatesApi } from '../api/templates'
 import { projectsApi } from '../api/projects'
-import type { ProjectTemplate, Project, TemplateTask } from '../types'
+import type { ProjectTemplate, Project } from '../types'
+
+// ─── 工作天工具函式（跳過週六日）──────────────────────────────
+function nextWorkday(d: Date): Date {
+  const r = new Date(d)
+  while (r.getDay() === 0 || r.getDay() === 6) r.setDate(r.getDate() + 1)
+  return r
+}
+
+function addWorkingDays(start: Date, workingDays: number): Date {
+  let d = nextWorkday(new Date(start))
+  let remaining = Math.max(1, workingDays) - 1
+  while (remaining > 0) {
+    d.setDate(d.getDate() + 1)
+    if (d.getDay() !== 0 && d.getDay() !== 6) remaining--
+  }
+  return d
+}
+
+/** 給定起始日 + 各任務工期，回傳每個任務的 { start, end } 實際日期 */
+function computeTaskDates(startDate: Date, durations: number[]): { start: Date; end: Date }[] {
+  const result: { start: Date; end: Date }[] = []
+  let cursor = nextWorkday(new Date(startDate))
+  for (const dur of durations) {
+    const taskStart = new Date(cursor)
+    const taskEnd = addWorkingDays(cursor, dur)
+    result.push({ start: taskStart, end: taskEnd })
+    cursor = nextWorkday(new Date(taskEnd.getTime() + 86400000))
+  }
+  return result
+}
+
+const fmtDate = (d: Date) =>
+  `${d.getMonth() + 1}/${d.getDate()}`
 
 // ─── 任務編輯列 ──────────────────────────────────────────────
 interface EditableTask {
-  id?: string           // 已存在的任務 id（編輯時）
+  id?: string
   title: string
   description: string
   priority: string
-  day_offset_start: number
-  day_offset_end: number | null
+  duration: number          // 工期天數（≥1）
+  depends_on_position: number | null
 }
 
 const PRIORITY_OPTS = [
@@ -22,9 +55,10 @@ const PRIORITY_OPTS = [
 ]
 
 function TaskRow({
-  task, idx, onChange, onRemove, onMoveUp, onMoveDown, isFirst, isLast,
+  task, idx, totalTasks, previewStart, previewEnd, onChange, onRemove, onMoveUp, onMoveDown, isFirst, isLast,
 }: {
-  task: EditableTask; idx: number
+  task: EditableTask; idx: number; totalTasks: number
+  previewStart?: Date; previewEnd?: Date
   onChange: (t: EditableTask) => void
   onRemove: () => void
   onMoveUp: () => void
@@ -49,6 +83,12 @@ function TaskRow({
           onChange={e => onChange({ ...task, title: e.target.value })}
           required
         />
+        {/* 預覽日期（僅有起始日時顯示） */}
+        {previewStart && previewEnd && (
+          <span className="text-xs text-indigo-500 flex-shrink-0 whitespace-nowrap">
+            {fmtDate(previewStart)} – {fmtDate(previewEnd)}
+          </span>
+        )}
         <button type="button" onClick={onRemove}
           className="text-red-400 hover:text-red-600 text-lg flex-shrink-0 px-1">✕</button>
       </div>
@@ -61,8 +101,8 @@ function TaskRow({
         onChange={e => onChange({ ...task, description: e.target.value })}
       />
 
-      {/* 優先度 + 天數 */}
-      <div className="flex gap-2 flex-wrap">
+      {/* 優先度 + 工期 + 前置任務 */}
+      <div className="flex gap-2 flex-wrap items-center">
         <select
           className="input text-sm w-24"
           value={task.priority}
@@ -72,36 +112,36 @@ function TaskRow({
         </select>
 
         <div className="flex items-center gap-1 text-sm">
-          <label className="text-gray-500 whitespace-nowrap">開始第</label>
+          <label className="text-gray-500 whitespace-nowrap">工期</label>
           <input
-            type="number" min={0} max={365}
+            type="number" min={1} max={365}
             className="input w-16 text-sm text-center"
-            value={task.day_offset_start}
-            onChange={e => onChange({ ...task, day_offset_start: Math.max(0, +e.target.value) })}
+            value={task.duration}
+            onChange={e => onChange({ ...task, duration: Math.max(1, +e.target.value || 1) })}
           />
-          <label className="text-gray-500">天</label>
+          <label className="text-gray-500">工作天</label>
         </div>
 
-        <div className="flex items-center gap-1 text-sm">
-          <label className="text-gray-500 whitespace-nowrap">截止第</label>
-          <input
-            type="number" min={0} max={365}
-            className="input w-16 text-sm text-center"
-            placeholder="—"
-            value={task.day_offset_end ?? ''}
-            onChange={e => onChange({
-              ...task,
-              day_offset_end: e.target.value === '' ? null : Math.max(0, +e.target.value),
-            })}
-          />
-          <label className="text-gray-500">天</label>
-        </div>
-
-        {/* 預覽：工期 */}
-        {task.day_offset_end != null && task.day_offset_end >= task.day_offset_start && (
-          <span className="text-xs text-indigo-500 self-center">
-            工期 {task.day_offset_end - task.day_offset_start + 1} 天
-          </span>
+        {/* 前置任務（第一個任務不顯示） */}
+        {!isFirst && (
+          <div className="flex items-center gap-1 text-sm">
+            <label className="text-gray-500 whitespace-nowrap">前置</label>
+            <select
+              className="input text-sm w-20"
+              value={task.depends_on_position ?? ''}
+              onChange={e => onChange({
+                ...task,
+                depends_on_position: e.target.value === '' ? null : +e.target.value,
+              })}
+            >
+              <option value="">無</option>
+              {Array.from({ length: totalTasks }, (_, i) => i)
+                .filter(i => i !== idx)
+                .map(i => (
+                  <option key={i} value={i}>任務 {i + 1}</option>
+                ))}
+            </select>
+          </div>
         )}
       </div>
     </div>
@@ -112,7 +152,7 @@ function TaskRow({
 function TemplateEditModal({
   template, onClose, onSaved,
 }: {
-  template?: ProjectTemplate      // undefined = 新建
+  template?: ProjectTemplate
   onClose: () => void
   onSaved: () => void
 }) {
@@ -120,25 +160,33 @@ function TemplateEditModal({
   const [name, setName] = useState(template?.name ?? '')
   const [description, setDescription] = useState(template?.description ?? '')
   const [color, setColor] = useState(template?.color ?? '#6366f1')
+
+  // 從已存範本的 day_offset 反算 duration
   const [tasks, setTasks] = useState<EditableTask[]>(
     template?.tasks.map(t => ({
       id: t.id,
       title: t.title,
       description: t.description ?? '',
       priority: t.priority,
-      day_offset_start: t.day_offset_start,
-      day_offset_end: t.day_offset_end ?? null,
-    })) ?? [{ title: '', description: '', priority: 'medium', day_offset_start: 0, day_offset_end: null }]
+      duration: t.day_offset_end != null
+        ? Math.max(1, t.day_offset_end - t.day_offset_start + 1)
+        : 1,
+      depends_on_position: t.depends_on_position ?? null,
+    })) ?? [{ title: '', description: '', priority: 'medium', duration: 1, depends_on_position: null }]
   )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // 預覽用起始日（不影響儲存，只用於顯示）
+  const [previewStart, setPreviewStart] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })
 
   const addTask = () => {
-    const last = tasks[tasks.length - 1]
-    const nextStart = last ? (last.day_offset_end ?? last.day_offset_start) + 1 : 0
+    const prevPos = tasks.length > 0 ? tasks.length - 1 : null
     setTasks(t => [...t, {
-      title: '', description: '', priority: 'medium',
-      day_offset_start: nextStart, day_offset_end: nextStart + 2,
+      title: '', description: '', priority: 'medium', duration: 1,
+      depends_on_position: prevPos,
     }])
   }
 
@@ -155,17 +203,30 @@ function TemplateEditModal({
       return a
     })
 
+  // 依序計算每個任務的 day_offset_start / day_offset_end
+  const computeOffsets = (taskList: EditableTask[]) => {
+    let cursor = 0
+    return taskList.map(t => {
+      const start = cursor
+      const end = cursor + t.duration - 1
+      cursor = end + 1
+      return { start, end }
+    })
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (tasks.some(t => !t.title.trim())) { setError('所有任務都需要填寫標題'); return }
     setError(''); setLoading(true)
+    const offsets = computeOffsets(tasks)
     const taskPayload = tasks.map((t, i) => ({
       title: t.title.trim(),
       description: t.description.trim() || undefined,
       priority: t.priority,
-      day_offset_start: t.day_offset_start,
-      day_offset_end: t.day_offset_end ?? undefined,
+      day_offset_start: offsets[i].start,
+      day_offset_end: offsets[i].end,
       position: i,
+      depends_on_position: t.depends_on_position ?? undefined,
     }))
     try {
       if (isNew) {
@@ -180,17 +241,29 @@ function TemplateEditModal({
     } finally { setLoading(false) }
   }
 
+  // 預覽：總工期（工作天）+ 計算每任務日期
+  const totalDuration = tasks.reduce((s, t) => s + t.duration, 0)
+  const previewDates = previewStart
+    ? computeTaskDates(new Date(previewStart), tasks.map(t => t.duration))
+    : []
+
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
         onClick={e => e.stopPropagation()}>
 
-        {/* 標題 */}
         <div className="px-6 pt-6 pb-3 border-b border-gray-100">
           <h2 className="text-lg font-bold text-gray-900">{isNew ? '建立專案範本' : `編輯：${template.name}`}</h2>
+          {tasks.length > 0 && (
+            <p className="text-xs text-gray-400 mt-0.5">
+              總工期 {totalDuration} 工作天（不含週末）
+              {previewDates.length > 0 && previewDates[previewDates.length - 1] &&
+                `，預計 ${previewDates[0].start.getMonth() + 1}/${previewDates[0].start.getDate()} – ${previewDates[previewDates.length - 1].end.getMonth() + 1}/${previewDates[previewDates.length - 1].end.getDate()}`
+              }
+            </p>
+          )}
         </div>
 
-        {/* 內容（可捲動） */}
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
             {error && <p className="text-sm text-red-500">{error}</p>}
@@ -222,12 +295,21 @@ function TemplateEditModal({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-medium text-gray-700">任務清單（{tasks.length} 個）</label>
-                <span className="text-xs text-gray-400">天數以「起始日期」為第 0 天計算</span>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-400 whitespace-nowrap">預覽起始日</label>
+                  <input
+                    type="date" value={previewStart}
+                    onChange={e => setPreviewStart(e.target.value)}
+                    className="input text-xs py-0.5 w-32"
+                  />
+                </div>
               </div>
               <div className="space-y-2">
                 {tasks.map((t, i) => (
                   <TaskRow
-                    key={i} task={t} idx={i}
+                    key={i} task={t} idx={i} totalTasks={tasks.length}
+                    previewStart={previewDates[i]?.start}
+                    previewEnd={previewDates[i]?.end}
                     onChange={val => updateTask(i, val)}
                     onRemove={() => removeTask(i)}
                     onMoveUp={() => moveTask(i, -1)}
@@ -244,7 +326,6 @@ function TemplateEditModal({
             </div>
           </div>
 
-          {/* 底部按鈕 */}
           <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
             <button type="submit" disabled={loading} className="btn-primary flex-1">
               {loading ? '儲存中…' : isNew ? '建立範本' : '儲存變更'}
@@ -264,6 +345,7 @@ function ApplyModal({ tmpl, onClose, onApplied }: {
   const [name, setName] = useState(`${tmpl.name} - 新專案`)
   const [description, setDescription] = useState('')
   const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -274,15 +356,25 @@ function ApplyModal({ tmpl, onClose, onApplied }: {
         project_name: name,
         project_description: description || undefined,
         start_date: startDate || undefined,
+        end_date: endDate || undefined,
       })
       onApplied(res.data)
     } finally { setLoading(false) }
   }
 
-  // 計算總工期
-  const duration = tmpl.tasks.length > 0
-    ? Math.max(...tmpl.tasks.map(t => t.day_offset_end ?? t.day_offset_start)) + 1
-    : 0
+  // Compute durations from stored offsets for each template task
+  const taskDurations = [...tmpl.tasks]
+    .sort((a, b) => a.position - b.position)
+    .map(t => (t.day_offset_end != null ? t.day_offset_end - t.day_offset_start + 1 : 1))
+  const totalWorkingDays = taskDurations.reduce((s, d) => s + d, 0)
+
+  // Estimated end date when startDate is provided
+  const estimatedDates = startDate && taskDurations.length > 0
+    ? computeTaskDates(new Date(startDate), taskDurations)
+    : []
+  const estimatedEnd = estimatedDates.length > 0
+    ? estimatedDates[estimatedDates.length - 1].end
+    : null
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -291,19 +383,35 @@ function ApplyModal({ tmpl, onClose, onApplied }: {
           <h2 className="text-lg font-bold text-gray-900 mb-1">套用範本：{tmpl.name}</h2>
           <p className="text-sm text-gray-500 mb-4">
             建立含 {tmpl.tasks.length} 個任務的新專案
-            {duration > 0 && `，總工期約 ${duration} 天`}
+            {totalWorkingDays > 0 && `，總工期 ${totalWorkingDays} 工作天`}
+            {estimatedEnd && (
+              <span className="ml-1 text-indigo-600 font-medium">
+                （預計完成：{estimatedEnd.getFullYear()}/{estimatedEnd.getMonth() + 1}/{estimatedEnd.getDate()}）
+              </span>
+            )}
           </p>
           <form onSubmit={handleSubmit} className="space-y-3">
-            <div><label className="text-sm font-medium text-gray-700">專案名稱</label>
-              <input className="input mt-1 w-full" value={name}
-                onChange={e => setName(e.target.value)} required autoFocus /></div>
-            <div><label className="text-sm font-medium text-gray-700">說明（選填）</label>
-              <input className="input mt-1 w-full" value={description}
-                onChange={e => setDescription(e.target.value)} /></div>
             <div>
-              <label className="text-sm font-medium text-gray-700">起始日期（任務時間軸基準，第 0 天）</label>
-              <input className="input mt-1 w-full" type="date" value={startDate}
-                onChange={e => setStartDate(e.target.value)} />
+              <label className="text-sm font-medium text-gray-700">專案名稱</label>
+              <input className="input mt-1 w-full" value={name}
+                onChange={e => setName(e.target.value)} required autoFocus />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">說明（選填）</label>
+              <input className="input mt-1 w-full" value={description}
+                onChange={e => setDescription(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium text-gray-700">起始日期</label>
+                <input className="input mt-1 w-full" type="date" value={startDate}
+                  onChange={e => setStartDate(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">截止日（選填）</label>
+                <input className="input mt-1 w-full" type="date" value={endDate}
+                  min={startDate} onChange={e => setEndDate(e.target.value)} />
+              </div>
             </div>
             <div className="flex gap-3 pt-2">
               <button type="submit" disabled={loading} className="btn-primary flex-1">
@@ -325,7 +433,7 @@ function TemplateCard({ tmpl, onApply, onEdit, onDelete }: {
   onEdit: (t: ProjectTemplate) => void
   onDelete: (id: string) => void
 }) {
-  const duration = tmpl.tasks.length > 0
+  const totalDuration = tmpl.tasks.length > 0
     ? Math.max(...tmpl.tasks.map(t => t.day_offset_end ?? t.day_offset_start)) + 1
     : 0
 
@@ -342,8 +450,8 @@ function TemplateCard({ tmpl, onApply, onEdit, onDelete }: {
         </div>
         <div className="flex items-center gap-1 flex-shrink-0 ml-2">
           <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{tmpl.tasks.length} 個任務</span>
-          {duration > 0 && (
-            <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{duration} 天</span>
+          {totalDuration > 0 && (
+            <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{totalDuration} 天</span>
           )}
         </div>
       </div>
@@ -352,15 +460,16 @@ function TemplateCard({ tmpl, onApply, onEdit, onDelete }: {
 
       {/* 任務預覽 */}
       <div className="space-y-1 mb-4 flex-1 max-h-40 overflow-y-auto">
-        {tmpl.tasks.map(t => (
-          <div key={t.id} className="flex items-center gap-2 text-xs">
-            <span className={`flex-shrink-0 ${PRIORITY_COLOR[t.priority] ?? 'text-gray-400'}`}>●</span>
-            <span className="text-gray-700 truncate flex-1">{t.title}</span>
-            <span className="text-gray-400 flex-shrink-0 whitespace-nowrap">
-              第 {t.day_offset_start}{t.day_offset_end != null ? `~${t.day_offset_end}` : ''} 天
-            </span>
-          </div>
-        ))}
+        {tmpl.tasks.map(t => {
+          const dur = t.day_offset_end != null ? t.day_offset_end - t.day_offset_start + 1 : 1
+          return (
+            <div key={t.id} className="flex items-center gap-2 text-xs">
+              <span className={`flex-shrink-0 ${PRIORITY_COLOR[t.priority] ?? 'text-gray-400'}`}>●</span>
+              <span className="text-gray-700 truncate flex-1">{t.title}</span>
+              <span className="text-gray-400 flex-shrink-0 whitespace-nowrap">{dur} 天</span>
+            </div>
+          )
+        })}
       </div>
 
       <div className="flex gap-2 flex-wrap">

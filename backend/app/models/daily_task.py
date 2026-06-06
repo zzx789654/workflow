@@ -33,6 +33,9 @@ class DailyTask(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     notify_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     work_minutes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    linked_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
@@ -45,6 +48,7 @@ class DailyTask(Base):
 
     user: Mapped["User"] = relationship(back_populates="daily_tasks")
     labels: Mapped[list["DailyTaskLabel"]] = relationship(back_populates="daily_task", cascade="all, delete-orphan")
+    linked_task: Mapped["Task | None"] = relationship("Task", foreign_keys=[linked_task_id])
 
 
 class DailyTaskLabel(Base):

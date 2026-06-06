@@ -100,7 +100,23 @@ async def get_dashboard_summary(
         dt_count = dt_result.scalar() or 0
         trend.append({"date": d.isoformat(), "count": t_count + dt_count})
 
-    # 需我處理：指派給我、未完成、按 due_date 升冪，取前 10
+    # 今日到期：assigned + not done + due_date = today
+    today_result = await db.execute(
+        select(Task)
+        .where(
+            and_(
+                Task.id.in_(assigned_task_ids_q),
+                Task.status != TaskStatus.done,
+                Task.due_date == today,
+                Task.project_id.in_(project_ids),
+            )
+        )
+        .order_by(Task.priority.desc())
+        .limit(20)
+    )
+    today_tasks = today_result.scalars().all()
+
+    # 需我處理：assigned + not done，按 due_date 升冪，取前 15
     urgent_result = await db.execute(
         select(Task)
         .where(
@@ -111,9 +127,74 @@ async def get_dashboard_summary(
             )
         )
         .order_by(Task.due_date.asc().nulls_last(), Task.priority.desc())
-        .limit(10)
+        .limit(15)
     )
     urgent_tasks = urgent_result.scalars().all()
+
+    # 即將到期（7 天內，未完成，assigned 給我）
+    upcoming_result = await db.execute(
+        select(Task)
+        .where(
+            and_(
+                Task.id.in_(assigned_task_ids_q),
+                Task.status != TaskStatus.done,
+                Task.due_date > today,
+                Task.due_date <= today + timedelta(days=7),
+                Task.project_id.in_(project_ids),
+            )
+        )
+        .order_by(Task.due_date.asc())
+        .limit(15)
+    )
+    upcoming_tasks = upcoming_result.scalars().all()
+
+    # 專案截止日預警（14 天內即將到達 end_date，未封存）
+    deadline_result = await db.execute(
+        select(Project)
+        .where(
+            and_(
+                Project.id.in_(project_ids),
+                Project.is_archived == False,
+                Project.end_date != None,
+                Project.end_date <= today + timedelta(days=14),
+            )
+        )
+        .order_by(Project.end_date.asc())
+        .limit(10)
+    )
+    deadline_projects = deadline_result.scalars().all()
+
+    # 各專案完成率
+    async def _project_progress(pid):
+        total_r = await db.execute(select(func.count()).where(Task.project_id == pid))
+        done_r = await db.execute(select(func.count()).where(Task.project_id == pid, Task.status == TaskStatus.done))
+        total = total_r.scalar() or 0
+        done = done_r.scalar() or 0
+        return total, done
+
+    deadline_out = []
+    for p in deadline_projects:
+        total, done = await _project_progress(p.id)
+        diff = (p.end_date - today).days
+        deadline_out.append({
+            "id": str(p.id),
+            "name": p.name,
+            "color": p.color,
+            "end_date": p.end_date.isoformat(),
+            "days_left": diff,
+            "task_total": total,
+            "task_done": done,
+        })
+
+    def _task_dict(t: Task) -> dict:
+        return {
+            "id": str(t.id),
+            "title": t.title,
+            "status": t.status,
+            "priority": t.priority,
+            "due_date": t.due_date.isoformat() if t.due_date else None,
+            "project_id": str(t.project_id),
+        }
 
     return {
         "kpi": {
@@ -121,16 +202,8 @@ async def get_dashboard_summary(
             "overdue": overdue_count,
             "completed_this_week": completed_count,
         },
-        "trend": trend,
-        "action_required": [
-            {
-                "id": str(t.id),
-                "title": t.title,
-                "status": t.status,
-                "priority": t.priority,
-                "due_date": t.due_date.isoformat() if t.due_date else None,
-                "project_id": str(t.project_id),
-            }
-            for t in urgent_tasks
-        ],
+        "today_due": [_task_dict(t) for t in today_tasks],
+        "action_required": [_task_dict(t) for t in urgent_tasks],
+        "upcoming": [_task_dict(t) for t in upcoming_tasks],
+        "deadline_projects": deadline_out,
     }

@@ -5,14 +5,12 @@ import SearchBar from './SearchBar'
 import NotificationBell from './NotificationBell'
 
 const navItems = [
-  { to: '/', label: '專案總覽', icon: '📁', end: true },
+  { to: '/', label: '儀表板', icon: '🏠', end: true },
+  { to: '/overview', label: '專案總覽', icon: '🗂️', end: false },
   { to: '/daily', label: '日常作業', icon: '📋', end: false },
-  { to: '/templates', label: '專案範本', icon: '🗂️', end: false },
+  { to: '/templates', label: '專案範本', icon: '📄', end: false },
   { to: '/calendar', label: '月曆', icon: '📅', end: false },
-  { to: '/time-report', label: '工時報表', icon: '⏱️', end: false },
-  { to: '/workload', label: '工作量', icon: '⚖️', end: false },
-  { to: '/insights', label: '個人分析', icon: '📈', end: false },
-  { to: '/announcements', label: '公告板', icon: '📢', end: false },
+  { to: '/archived', label: '封存專案', icon: '🗄️', end: false },
 ]
 
 const bottomNavItems = [

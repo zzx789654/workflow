@@ -428,7 +428,7 @@ export default function SettingsPage() {
     { id: 'profile', label: '個人資料' },
     { id: 'users',   label: '使用者管理', adminOnly: true },
     { id: 'system_config', label: '系統設定', adminOnly: true },
-    { id: 'system',  label: '系統資訊' },
+    { id: 'system',  label: '系統資訊', adminOnly: true },
   ]
 
   const tabClass = (id: Tab) =>

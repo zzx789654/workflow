@@ -1,3 +1,110 @@
+## [2026-06-06] 輪結 Round 13 — V4 7 項 UX 優化（G4 待驗收）
+
+- 現況：**G1✅ G2✅ G3✅；本輪完成 7 項 UX 優化；下一步 = G4（QA 功能驗收）**
+- Dev：7 項 UX 優化全部實作，遷移 009/010
+- 修改清單：
+  1. MilestonesTab.tsx：里程碑工時改為全時段顯示 inline 輸入框（onBlur 自動儲存）
+  2. TemplatesPage.tsx + template model/schema：範本任務加 depends_on_position，新增任務自動設前置任務
+  3. TaskListView.tsx：加負責人、截止日欄位；狀態改為 inline select 下拉
+  4. TaskDetailPanel.tsx：移除 F07 時間追蹤區塊（state/handlers/JSX/import）
+  5. TaskCard.tsx + TaskListView.tsx：有附件時顯示 📎 count；新增 attachment_count DB 欄位（migration 010）
+  6. TemplatesPage.tsx ApplyModal：加截止日欄位；apply_template API 自動算下一任務前一天為結束日；設定 project.end_date
+  7. TaskListView.tsx：tree 結構顯示子任務（parent→indented children）
+- DB migration：009（template_tasks.depends_on_position）、010（tasks.attachment_count）兩個 migration 均通過
+- Build：backend + frontend Docker build 成功，alembic upgrade head 無報錯
+
+### 教訓 / 準則
+
+**教訓 60：移除 state 時要同步移除 import、useEffect 呼叫、handler 函式和 JSX 三處**
+- 情境：移除 F07 時間追蹤時，只刪 JSX 或只刪 state 都會留下 unused variable TS 警告或 runtime 錯誤
+- 準則：刪除功能時，按順序：(1) JSX 區塊 (2) handler 函式 (3) state 宣告 (4) useEffect 呼叫 (5) import
+- **How to apply：** 刪功能前先 grep 功能用到的所有符號，列出後逐一清除
+
+**教訓 61：denormalized count 欄位需要在 create/delete 兩端都更新**
+- 情境：attachment_count 加到 tasks 表，只在 upload 端 +1，忘了在 delete 端 -1 則計數不準
+- 準則：加 denormalized counter 欄位時，同步更新所有寫入端（create/delete/batch）
+- **How to apply：** 每次加 count 欄位，grep 對應 model 的所有寫入路徑
+
+### 過程原始輸出位置
+- 新建 migration：009_template_task_dependency.py、010_task_attachment_count.py
+- 後端修改：template.py（model）、template.py（schema）、templates.py（endpoint × 3）、attachments.py（attachment_count +/-）、task.py（model）、task schema
+- 前端修改：MilestonesTab.tsx、TemplatesPage.tsx、TaskListView.tsx、TaskDetailPanel.tsx、TaskCard.tsx、types/index.ts、api/templates.ts
+
+---
+
+## [2026-06-06] 輪結 Round 12 — V4 實作 G2/G3 通過（移除 F18/F22，N01-N09 重設計）
+
+- 現況：**G1✅ G2✅ G3✅；下一步 = G4（QA 測試）**
+- Dev：移除 F18 Webhook（endpoint + model + migration 008）、F22 公開分享、F23 健康分數 DB
+- Dev：N01 首頁重設計（今日到期 + 需我處理 + 公告橫幅 + 工作量摘要）
+- Dev：N02 移除試算表視圖（只剩 Kanban + 列表）
+- Dev：N03 移除 TimeReportPage、WorkloadPage、InsightsPage、AnnouncementsPage 獨立頁面
+- Dev：N04 自訂欄位上限 10→5
+- Dev：N07 健康指標改前端計算（3 級標籤，移除 API 呼叫）
+- Dev：N08 AI 升級：Claude API（claude-haiku-4-5）+ fallback 規則引擎
+- Dev：N09 移除 PDF 匯出，只保留 CSV
+- Sec：Critical_0 / High_0 / Low_1（FIND-V4-001 任務標題傳 Anthropic，已知風險接受）
+- 退回事件：v4_models.py 仍保留已刪 table 的 ORM model → 補充清理
+
+### 教訓 / 準則
+
+**教訓 58：ORM model、models/__init__.py、migration 三者必須同步移除**
+- 情境：migration 008 DROP TABLE、v4_models.py 刪除 class，但 models/__init__.py 仍 import WebhookEndpoint/ProjectHealthScore 等，導致 Docker 啟動時 alembic env.py import 失敗
+- 準則：刪除功能時，三個地方必須一起改：(1) migration downgrade DROP TABLE (2) models/xxx.py 刪除 class (3) models/__init__.py 移除 import 和 __all__
+- **How to apply：** 建立 checklist：table 移除 = migration + model class + __init__ 三選一都不能漏
+
+**教訓（原 58，重新編號為 59）：ORM model 與 migration down 必須同步移除（原則）**
+- 情境：migration 008 已 DROP TABLE webhook_endpoints/project_share_links/project_health_scores，但 v4_models.py 仍保留這些 class，SQLAlchemy metadata 管理不一致
+- 準則：刪除 table 時，對應的 ORM Model class 也要同步刪除；保留 Model 但 DROP TABLE 會讓 SQLAlchemy introspect 時混亂
+- **How to apply：** 每次寫 migration downgrade 時，同步檢查 models/ 目錄是否有對應 class 需要清理
+
+**教訓 59：AI API 呼叫必須有 try/except fallback，不能讓外部 API 失敗影響核心功能**
+- 情境：ai_assist.py 呼叫 Claude API，若 API 超時或 key 無效，必須 gracefully fallback 到規則引擎，不能讓頁面 500
+- 準則：所有外部 API 呼叫包在 try/except，回傳 None 讓 caller 降級；logging.warning 記錄失敗原因（不 raise）
+- **How to apply：** 所有第三方 API 整合一律採此模式
+
+### 過程原始輸出位置
+- 新建 migration：008_v4_remove_f18_f22_f23.py
+- 後端修改：dashboard.py（+today_due）、custom_fields.py（limit 5）、ai_assist.py（Claude API）、v4_models.py（清理）
+- 前端修改：DashboardPage.tsx（N01）、ProjectPage.tsx（N07）、ProjectSettingsTab.tsx（N04）、Layout.tsx（導覽）、App.tsx（路由）
+- 前端移除：webhooks.ts、healthScore.ts、PublicProjectPage.tsx（及對應路由）
+
+---
+
+## [2026-06-06] 輪結 Round 11 — V4 CoreMain 建立 + 功能重審 G1 通過
+
+- 現況：**G1✅；下一步 = G2（DevSecOps 開始實作 N01～N09 + 移除 F18/F22）**
+- PM：首次建立 CoreMain.md（主題：100 人組織任務核心協作平台）；重審 23 個 V3 功能；確立 V4 方向
+- 功能分類結果：
+  - ✅ 保留不變：9 項（F02/F03/F04/F06/F10/F11/F13/F15/F19）
+  - 🔧 重新設計：9 項（N01～N09）
+  - ❌ 移除：3 項（F18 Webhook、F21 i18n 已延後、F22 公開分享）
+  - ⏸ 暫緩：3 項（F08 週報、F14 Emoji、F16 個人效率分析）
+- 過關狀態：G1✅ / G2 Pending / G3 Pending / G4 Pending / G5 Pending / G6 Pending
+
+### 教訓 / 準則
+
+**教訓 55：CoreMain.md 應在專案最開始建立，而非功能疊加後才補**
+- 情境：WorkFlow V1→V3 累積 23 個功能，但一直沒有「中心思想文件」，導致 F08 週報、F18 Webhook、F22 公開分享等功能與核心使用場景距離較遠，卻已經實作完成
+- 準則：任何新專案在第一個 Sprint 前，PM 必須先與使用者確認一句話主題並寫進 CoreMain.md；每加一個功能前先對照 CoreMain 的「主題對照檢核」
+- **How to apply：** 啟動新專案時，SDLC 第一個動作是建立 CoreMain.md，不是寫 code
+
+**教訓 56：功能疊加會稀釋核心體驗，定期回歸 CoreMain 做功能健康檢查**
+- 情境：V3 的 F16 個人效率分析、F23 健康指標計算模組都實作完成，但對「使用者 5 秒找到今日下一步」的目標貢獻有限，反而增加認知負擔
+- 準則：每次大版本升級前，用 CoreMain 的「主題對照檢核」重新審視所有功能；偏離主題的功能暫緩或移除，不要只往上疊
+- **How to apply：** V4+ 每輪開工前先讀 CoreMain.md，用「這個功能讓使用者更快找到下一步任務嗎？」過濾
+
+**教訓 57：「任務核心」設計原則：首頁應是個人化的任務入口，不是 BI 儀表板**
+- 情境：V3 的 DashboardPage 有趨勢折線圖、KPI 卡片，視覺上完整，但使用者真正需要的是「我今天要做什麼」
+- 準則：個人首頁三個最重要問題：今日到期任務、需我處理的任務、我的進行中任務；趨勢分析是管理者功能，不應佔首頁主位
+- **How to apply：** N01 個人首頁設計以「5 秒找到下一步」為驗收標準，不以功能完整度為驗收標準
+
+### 過程原始輸出位置
+- 新建立：CoreMain.md（workflow 根目錄）
+- 更新：待修改.md（V4 規劃格式）
+
+---
+
 ## [2026-06-05] 輪結 Round 9 — V3 全功能補完 + G1～G6 全通過 ✅ 正式上線
 
 - 現況：**G1✅ G2✅ G3✅ G4✅ G5✅ G6✅ — 全部關卡通過，WorkFlow V3 正式上線**

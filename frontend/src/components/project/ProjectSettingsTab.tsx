@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react'
 import { customFieldsApi } from '../../api/customFields'
-import { webhooksApi, type WebhookOut, type WebhookCreate } from '../../api/webhooks'
-import type { ProjectField } from '../../types'
+import { projectsApi } from '../../api/projects'
+import { toast } from '../../stores/toastStore'
+import type { Project, ProjectField } from '../../types'
 
-interface Props { projectId: string }
+interface Props {
+  projectId: string
+  project: Project | null
+  onProjectUpdate: (p: Project) => void
+}
 
 const FIELD_TYPES = [
   { value: 'text', label: '文字' },
@@ -12,16 +17,16 @@ const FIELD_TYPES = [
   { value: 'select', label: '下拉選單' },
 ]
 
-const VALID_EVENTS = [
-  { value: 'task.created', label: '任務建立' },
-  { value: 'task.updated', label: '任務更新' },
-  { value: 'task.completed', label: '任務完成' },
-  { value: 'milestone.completed', label: '里程碑完成' },
-  { value: 'comment.created', label: '評論新增' },
+const RECURRENCE_OPTIONS = [
+  { value: '', label: '不重複' },
+  { value: 'daily', label: '每天' },
+  { value: 'weekly', label: '每週' },
+  { value: 'monthly', label: '每月' },
 ]
 
-export default function ProjectSettingsTab({ projectId }: Props) {
-  // ── 自訂欄位 ──────────────────────────────
+const MAX_FIELDS = 5
+
+export default function ProjectSettingsTab({ projectId, project, onProjectUpdate }: Props) {
   const [fields, setFields] = useState<ProjectField[]>([])
   const [loadingFields, setLoadingFields] = useState(true)
   const [fieldName, setFieldName] = useState('')
@@ -30,29 +35,37 @@ export default function ProjectSettingsTab({ projectId }: Props) {
   const [creatingField, setCreatingField] = useState(false)
   const [fieldError, setFieldError] = useState('')
 
-  // ── Webhooks ──────────────────────────────
-  const [webhooks, setWebhooks] = useState<WebhookOut[]>([])
-  const [loadingWebhooks, setLoadingWebhooks] = useState(true)
-  const [whName, setWhName] = useState('')
-  const [whUrl, setWhUrl] = useState('')
-  const [whSecret, setWhSecret] = useState('')
-  const [whEvents, setWhEvents] = useState<string[]>([])
-  const [creatingWh, setCreatingWh] = useState(false)
-  const [whError, setWhError] = useState('')
+  const [recurrenceRule, setRecurrenceRule] = useState(project?.recurrence_rule ?? '')
+  const [savingRecurrence, setSavingRecurrence] = useState(false)
+
+  useEffect(() => {
+    setRecurrenceRule(project?.recurrence_rule ?? '')
+  }, [project?.recurrence_rule])
 
   useEffect(() => {
     customFieldsApi.listFields(projectId)
       .then(r => setFields(r.data))
       .finally(() => setLoadingFields(false))
-    webhooksApi.list(projectId)
-      .then(r => setWebhooks(r.data))
-      .catch(() => setWebhooks([]))
-      .finally(() => setLoadingWebhooks(false))
   }, [projectId])
+
+  const handleSaveRecurrence = async () => {
+    setSavingRecurrence(true)
+    try {
+      const res = await projectsApi.update(projectId, { recurrence_rule: recurrenceRule || null })
+      onProjectUpdate(res.data)
+      toast.success('重複排程已儲存')
+    } catch {
+      toast.error('儲存失敗')
+    } finally { setSavingRecurrence(false) }
+  }
 
   const handleCreateField = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!fieldName.trim()) return
+    if (fields.length >= MAX_FIELDS) {
+      setFieldError(`最多只能建立 ${MAX_FIELDS} 個自訂欄位`)
+      return
+    }
     setFieldError('')
     setCreatingField(true)
     try {
@@ -75,44 +88,44 @@ export default function ProjectSettingsTab({ projectId }: Props) {
     setFields(f => f.filter(x => x.id !== fieldId))
   }
 
-  const toggleWhEvent = (ev: string) =>
-    setWhEvents(prev => prev.includes(ev) ? prev.filter(x => x !== ev) : [...prev, ev])
-
-  const handleCreateWebhook = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!whName.trim() || !whUrl.trim()) return
-    setWhError('')
-    setCreatingWh(true)
-    try {
-      const data: WebhookCreate = {
-        name: whName.trim(),
-        url: whUrl.trim(),
-        events: whEvents,
-        ...(whSecret.trim() ? { secret: whSecret.trim() } : {}),
-      }
-      const res = await webhooksApi.create(projectId, data)
-      setWebhooks(w => [...w, res.data])
-      setWhName('')
-      setWhUrl('')
-      setWhSecret('')
-      setWhEvents([])
-    } catch (err: any) {
-      setWhError(err?.response?.data?.detail ?? '建立失敗')
-    } finally { setCreatingWh(false) }
-  }
-
-  const handleDeleteWebhook = async (webhookId: string) => {
-    if (!confirm('確定刪除此 Webhook？')) return
-    await webhooksApi.delete(projectId, webhookId)
-    setWebhooks(w => w.filter(x => x.id !== webhookId))
-  }
-
   return (
     <div className="max-w-xl space-y-8">
-      {/* ── 自訂欄位 ── */}
+
+      {/* 重複排程 */}
+      <section>
+        <h2 className="text-base font-semibold text-gray-800 mb-1">重複排程</h2>
+        <p className="text-sm text-gray-500 mb-4">設定此專案的週期性重複規則，到期後自動建立下一輪專案。</p>
+        <div className="flex items-center gap-3">
+          <select
+            className="input text-sm flex-1"
+            value={recurrenceRule}
+            onChange={e => setRecurrenceRule(e.target.value)}
+          >
+            {RECURRENCE_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleSaveRecurrence}
+            disabled={savingRecurrence}
+            className="btn-primary text-sm px-4"
+          >
+            {savingRecurrence ? '儲存中…' : '儲存'}
+          </button>
+        </div>
+        {recurrenceRule && (
+          <p className="text-xs text-indigo-500 mt-2">
+            此專案設定為「{RECURRENCE_OPTIONS.find(o => o.value === recurrenceRule)?.label}」重複。
+          </p>
+        )}
+      </section>
+
+      {/* 自訂欄位 */}
       <section>
         <h2 className="text-base font-semibold text-gray-800 mb-1">自訂欄位</h2>
-        <p className="text-sm text-gray-500 mb-4">為此專案的任務新增自訂欄位（最多 10 個），由 Manager 以上角色管理。</p>
+        <p className="text-sm text-gray-500 mb-4">
+          為此專案的任務新增自訂欄位（最多 {MAX_FIELDS} 個），由 Manager 以上角色管理。
+        </p>
 
         {loadingFields ? (
           <div className="text-center py-8 text-gray-400 text-sm">載入中…</div>
@@ -138,11 +151,11 @@ export default function ProjectSettingsTab({ projectId }: Props) {
                 </button>
               </div>
             ))}
-            <p className="text-xs text-gray-400 text-right">{fields.length} / 10 個欄位</p>
+            <p className="text-xs text-gray-400 text-right">{fields.length} / {MAX_FIELDS} 個欄位</p>
           </div>
         )}
 
-        {fields.length < 10 && (
+        {fields.length < MAX_FIELDS && (
           <form onSubmit={handleCreateField} className="card space-y-3">
             <p className="text-sm font-medium text-gray-700">新增欄位</p>
             {fieldError && <p className="text-xs text-red-500">{fieldError}</p>}
@@ -178,101 +191,6 @@ export default function ProjectSettingsTab({ projectId }: Props) {
             </button>
           </form>
         )}
-      </section>
-
-      {/* ── Webhooks ── */}
-      <section>
-        <h2 className="text-base font-semibold text-gray-800 mb-1">Webhook 整合</h2>
-        <p className="text-sm text-gray-500 mb-4">設定對外 Webhook，在專案事件發生時通知外部服務。需 Manager 以上角色。</p>
-
-        {loadingWebhooks ? (
-          <div className="text-center py-8 text-gray-400 text-sm">載入中…</div>
-        ) : webhooks.length === 0 ? (
-          <div className="text-sm text-gray-400 py-6 text-center border border-dashed border-gray-200 rounded-xl">
-            尚無 Webhook
-          </div>
-        ) : (
-          <div className="space-y-2 mb-4">
-            {webhooks.map(wh => (
-              <div key={wh.id} className="p-3 bg-gray-50 rounded-xl border border-gray-100">
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800">{wh.name}</p>
-                    <p className="text-xs text-gray-500 truncate">{wh.url}</p>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {wh.events.map(ev => (
-                        <span key={ev} className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">
-                          {VALID_EVENTS.find(e => e.value === ev)?.label ?? ev}
-                        </span>
-                      ))}
-                    </div>
-                    {wh.last_triggered_at && (
-                      <p className="text-xs text-gray-400 mt-1">
-                        上次觸發：{new Date(wh.last_triggered_at).toLocaleString('zh-TW')}
-                      </p>
-                    )}
-                  </div>
-                  <button onClick={() => handleDeleteWebhook(wh.id)} className="text-xs text-red-400 hover:text-red-600 flex-shrink-0">
-                    刪除
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <form onSubmit={handleCreateWebhook} className="card space-y-3">
-          <p className="text-sm font-medium text-gray-700">新增 Webhook</p>
-          {whError && <p className="text-xs text-red-500">{whError}</p>}
-          <input
-            className="input w-full text-sm"
-            placeholder="名稱（例：Slack 通知）"
-            value={whName}
-            onChange={e => setWhName(e.target.value)}
-            required
-            maxLength={200}
-          />
-          <input
-            className="input w-full text-sm"
-            placeholder="Endpoint URL（https://...）"
-            value={whUrl}
-            onChange={e => setWhUrl(e.target.value)}
-            required
-            type="url"
-          />
-          <input
-            className="input w-full text-sm"
-            placeholder="簽名密鑰（選填，用於 HMAC-SHA256 驗證）"
-            type="password"
-            autoComplete="new-password"
-            value={whSecret}
-            onChange={e => setWhSecret(e.target.value)}
-            maxLength={200}
-          />
-          <div>
-            <p className="text-xs text-gray-600 mb-1.5">訂閱事件（至少選一）</p>
-            <div className="flex flex-wrap gap-2">
-              {VALID_EVENTS.map(ev => (
-                <label key={ev.value} className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={whEvents.includes(ev.value)}
-                    onChange={() => toggleWhEvent(ev.value)}
-                    className="accent-primary-500"
-                  />
-                  <span className="text-xs text-gray-700">{ev.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <button
-            type="submit"
-            disabled={creatingWh || whEvents.length === 0}
-            className="btn-primary text-sm"
-          >
-            {creatingWh ? '建立中…' : '+ 新增 Webhook'}
-          </button>
-        </form>
       </section>
     </div>
   )

@@ -195,30 +195,40 @@ export default function GanttTab({ projectId }: Props) {
           >
             <defs>
               <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                <path d="M0,0 L0,6 L6,3 z" fill="#f97316" />
+                <path d="M0,0 L0,6 L6,3 z" fill="#94a3b8" />
               </marker>
             </defs>
             {visibleDeps.map((dep) => {
               const from = barInfo[dep.from_task_id]
               const to = barInfo[dep.to_task_id]
               if (!from || !to) return null
-              // 從 from 任務橫條右端 → to 任務橫條左端，折線箭頭
               const x1 = NAME_W + from.right
               const y1 = from.y
               const x2 = NAME_W + to.x
               const y2 = to.y
-              const midX = (x1 + x2) / 2
+              const elbow = 10
+              // 直角折線：右出 elbow → 垂直到目標行 → 水平入左端
+              // 若 to 在 from 左側或空間不足，向下繞行
+              const path = x1 + elbow <= x2 - elbow
+                ? `M${x1},${y1} H${x1 + elbow} V${y2} H${x2}`
+                : `M${x1},${y1} h${elbow} V${y1 + ROW_H * 0.45} H${x2 - elbow} V${y2} H${x2}`
+              const fromTitle = tasks.find(t => t.id === dep.from_task_id)?.title ?? ''
+              const toTitle   = tasks.find(t => t.id === dep.to_task_id)?.title ?? ''
               return (
                 <g key={dep.id}>
+                  {/* 加粗透明路徑提升 hover 命中區域 */}
+                  <path d={path} fill="none" stroke="transparent" strokeWidth="10" />
                   <path
-                    d={`M${x1},${y1} C${midX},${y1} ${midX},${y2} ${x2},${y2}`}
+                    d={path}
                     fill="none"
-                    stroke="#f97316"
+                    stroke="#94a3b8"
                     strokeWidth="1.5"
-                    strokeDasharray="4 2"
+                    strokeDasharray="5 3"
                     markerEnd="url(#arrow)"
-                    opacity="0.7"
-                  />
+                    opacity="0.55"
+                  >
+                    <title>{fromTitle} → {toTitle}</title>
+                  </path>
                 </g>
               )
             })}
@@ -243,7 +253,7 @@ export default function GanttTab({ projectId }: Props) {
           今日
         </span>
         <span className="flex items-center gap-1">
-          <svg width="24" height="12"><path d="M2,6 C8,6 16,6 22,6" stroke="#f97316" strokeWidth="1.5" strokeDasharray="4 2" fill="none" markerEnd="url(#arrow)" /></svg>
+          <svg width="24" height="12"><path d="M2,6 H10 V6 H22" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="5 3" fill="none" markerEnd="url(#arrow)" /></svg>
           任務依賴
         </span>
         <span className="flex items-center gap-1">

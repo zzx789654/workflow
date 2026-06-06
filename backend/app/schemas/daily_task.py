@@ -6,6 +6,15 @@ from pydantic import BaseModel, Field
 from app.models.daily_task import DailyTaskStatus
 
 
+class LinkedTaskInfo(BaseModel):
+    id: uuid.UUID
+    title: str
+    project_id: uuid.UUID
+    project_name: str
+
+    model_config = {"from_attributes": True}
+
+
 class DailyTaskCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=500)
     description: str | None = None
@@ -17,6 +26,7 @@ class DailyTaskCreate(BaseModel):
     notify_at: _dt.datetime | None = None
     work_minutes: int = Field(0, ge=0)
     labels: list[str] = []
+    linked_task_id: uuid.UUID | None = None
 
 
 class DailyTaskUpdate(BaseModel):
@@ -30,6 +40,7 @@ class DailyTaskUpdate(BaseModel):
     notify_at: _dt.datetime | None = None
     work_minutes: int | None = Field(None, ge=0)
     labels: list[str] | None = None
+    linked_task_id: uuid.UUID | None = None
 
 
 class DailyTaskOut(BaseModel):
@@ -47,5 +58,7 @@ class DailyTaskOut(BaseModel):
     created_at: _dt.datetime
     updated_at: _dt.datetime
     labels: list[str] = []
+    linked_task_id: uuid.UUID | None = None
+    linked_task: LinkedTaskInfo | None = None
 
     model_config = {"from_attributes": True}

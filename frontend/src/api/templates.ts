@@ -30,7 +30,7 @@ export const templatesApi = {
 
   delete: (id: string) => api.delete(`/project-templates/${id}`),
 
-  apply: (id: string, data: { project_name: string; project_description?: string; start_date?: string }) =>
+  apply: (id: string, data: { project_name: string; project_description?: string; start_date?: string; end_date?: string }) =>
     api.post<Project>(`/project-templates/${id}/apply`, data),
 
   createFromProject: (projectId: string, name: string) =>

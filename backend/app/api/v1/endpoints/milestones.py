@@ -34,6 +34,7 @@ class MilestoneLogOut(BaseModel):
     completed_by: uuid.UUID | None
     completed_by_name: str | None
     work_minutes: int
+    daily_task_minutes: int = 0  # 關聯日常任務的時數加總
     note: str | None
     completed_at: datetime
 
@@ -52,11 +53,33 @@ async def list_milestone_logs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    from sqlalchemy import func
+    from app.models.daily_task import DailyTask
+
     await _check_member(project_id, current_user, db)
-    result = await db.execute(
+    logs_result = await db.execute(
         select(MilestoneLog).where(MilestoneLog.project_id == project_id).order_by(MilestoneLog.completed_at.desc())
     )
-    return result.scalars().all()
+    logs = logs_result.scalars().all()
+
+    # 一次查詢所有相關 task_id 的日常任務時數加總
+    task_ids = [l.task_id for l in logs if l.task_id is not None]
+    daily_minutes_map: dict[uuid.UUID, int] = {}
+    if task_ids:
+        rows = await db.execute(
+            select(DailyTask.linked_task_id, func.sum(DailyTask.work_minutes))
+            .where(DailyTask.linked_task_id.in_(task_ids))
+            .group_by(DailyTask.linked_task_id)
+        )
+        for task_id, total in rows.all():
+            daily_minutes_map[task_id] = int(total or 0)
+
+    out = []
+    for log in logs:
+        d = {c.key: getattr(log, c.key) for c in log.__table__.columns}
+        d["daily_task_minutes"] = daily_minutes_map.get(log.task_id, 0) if log.task_id else 0
+        out.append(MilestoneLogOut(**d))
+    return out
 
 
 # ── 更新工時 / 備註 ────────────────────────────────────────────

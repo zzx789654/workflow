@@ -25,6 +25,7 @@ class Project(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     color: Mapped[str] = mapped_column(String(7), default="#6366f1", nullable=False)
     is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
+    recurrence_rule: Mapped[str | None] = mapped_column(String(20), nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

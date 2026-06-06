@@ -2,10 +2,13 @@ import { api } from './client'
 import type { DailyTask, DailyTaskStatus } from '../types'
 
 export const dailyTasksApi = {
-  list: (params?: { date?: string; label?: string }) =>
+  list: (params?: { date?: string; label?: string; pending_only?: boolean }) =>
     api.get<DailyTask[]>('/daily-tasks/', { params }),
 
   get: (id: string) => api.get<DailyTask>(`/daily-tasks/${id}`),
+
+  listByTask: (taskId: string) =>
+    api.get<DailyTask[]>(`/daily-tasks/by-task/${taskId}`),
 
   create: (data: {
     title: string
@@ -18,6 +21,7 @@ export const dailyTasksApi = {
     notify_at?: string
     work_minutes?: number
     labels?: string[]
+    linked_task_id?: string | null
   }) => api.post<DailyTask>('/daily-tasks/', data),
 
   update: (id: string, data: Partial<{
@@ -31,6 +35,7 @@ export const dailyTasksApi = {
     notify_at: string | null
     work_minutes: number
     labels: string[]
+    linked_task_id: string | null
   }>) => api.patch<DailyTask>(`/daily-tasks/${id}`, data),
 
   delete: (id: string) => api.delete(`/daily-tasks/${id}`),

@@ -10,7 +10,7 @@ from app.db.session import get_db
 from app.models.project import Project, ProjectMember, ProjectRole
 from app.models.task import Task
 from app.models.user import User
-from app.schemas.project import AddMemberRequest, ProjectCreate, ProjectMemberOut, ProjectOut, ProjectUpdate
+from app.schemas.project import AddMemberRequest, ProjectCreate, ProjectMemberOut, ProjectOut, ProjectOverviewItem, ProjectUpdate
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -69,18 +69,57 @@ async def apply_project_deadline_to_tasks(
 
 
 @router.get("/", response_model=list[ProjectOut])
-async def list_projects(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def list_projects(
+    archived: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     if current_user.role.value == "admin":
-        result = await db.execute(select(Project).where(Project.is_archived == False))
+        result = await db.execute(select(Project).where(Project.is_archived == archived))
     else:
         subq = select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id)
-        result = await db.execute(select(Project).where(Project.id.in_(subq), Project.is_archived == False))
+        result = await db.execute(select(Project).where(Project.id.in_(subq), Project.is_archived == archived))
     projects = result.scalars().all()
     out = []
     for p in projects:
         count_result = await db.execute(select(func.count()).where(ProjectMember.project_id == p.id))
         out.append(ProjectOut(**p.__dict__, member_count=count_result.scalar()))
     return out
+
+
+@router.get("/overview", response_model=list[ProjectOverviewItem])
+async def get_overview(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    uid = current_user.id
+
+    if current_user.role.value == "admin":
+        visible_result = await db.execute(select(Project.id))
+    else:
+        visible_result = await db.execute(
+            select(ProjectMember.project_id).where(ProjectMember.user_id == uid)
+        )
+    visible_ids = {r[0] for r in visible_result.all()}
+
+    all_result = await db.execute(select(Project).where(Project.id.in_(visible_ids)))
+    all_projects = all_result.scalars().all()
+
+    result_items: list[ProjectOverviewItem] = []
+    for p in all_projects:
+        total_r = await db.execute(select(func.count()).where(Task.project_id == p.id))
+        done_r = await db.execute(select(func.count()).where(Task.project_id == p.id, Task.status == "done"))
+        mc_r = await db.execute(select(func.count()).where(ProjectMember.project_id == p.id))
+        result_items.append(ProjectOverviewItem(
+            id=p.id, name=p.name, description=p.description, color=p.color,
+            is_archived=p.is_archived, start_date=p.start_date, end_date=p.end_date,
+            member_count=mc_r.scalar() or 0,
+            task_total=total_r.scalar() or 0,
+            task_done=done_r.scalar() or 0,
+        ))
+
+    result_items.sort(key=lambda x: (x.is_archived, x.name))
+    return result_items
 
 
 @router.get("/{project_id}", response_model=ProjectOut)

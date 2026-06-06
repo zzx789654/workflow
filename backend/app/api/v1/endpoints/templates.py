@@ -2,6 +2,27 @@ import uuid
 from datetime import date, timedelta
 from typing import Annotated
 
+
+def _next_workday(d: date) -> date:
+    """Advance d to the next weekday if it lands on Sat/Sun."""
+    while d.weekday() >= 5:  # 5=Sat, 6=Sun
+        d += timedelta(days=1)
+    return d
+
+
+def _add_working_days(start: date, working_days: int) -> date:
+    """Return the date after adding N working days (Mon–Fri) to start.
+    start itself is counted as day 1 if it is a workday."""
+    if working_days <= 0:
+        return _next_workday(start)
+    d = _next_workday(start)
+    remaining = working_days - 1
+    while remaining > 0:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            remaining -= 1
+    return d
+
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,6 +88,7 @@ async def create_template(
                 day_offset_start=t.day_offset_start,
                 day_offset_end=t.day_offset_end,
                 position=i,
+                depends_on_position=t.depends_on_position,
             )
         )
     await db.commit()
@@ -120,6 +142,7 @@ async def replace_template_tasks(
                 day_offset_start=t.day_offset_start,
                 day_offset_end=t.day_offset_end,
                 position=i,
+                depends_on_position=t.depends_on_position,
             )
         )
     await db.commit()
@@ -148,19 +171,41 @@ async def apply_template(
     current_user: User = Depends(get_current_user),
 ):
     tmpl = await _load_template(template_id, db)
-    project = Project(name=body.project_name, description=body.project_description, color=tmpl.color)
+    project = Project(
+        name=body.project_name,
+        description=body.project_description,
+        color=tmpl.color,
+        start_date=date.fromisoformat(body.start_date) if body.start_date else None,
+        end_date=date.fromisoformat(body.end_date) if body.end_date else None,
+    )
     db.add(project)
     await db.flush()
     db.add(ProjectMember(project_id=project.id, user_id=current_user.id, role=ProjectRole.owner))
 
-    base = date.fromisoformat(body.start_date) if body.start_date else date.today()
-    for tt in sorted(tmpl.tasks, key=lambda x: x.position):
-        priority_map = {
-            "low": TaskPriority.low,
-            "medium": TaskPriority.medium,
-            "high": TaskPriority.high,
-            "urgent": TaskPriority.urgent,
-        }
+    raw_base = date.fromisoformat(body.start_date) if body.start_date else date.today()
+    # Ensure project start is a workday
+    base = _next_workday(raw_base)
+    sorted_tasks = sorted(tmpl.tasks, key=lambda x: x.position)
+    priority_map = {
+        "low": TaskPriority.low,
+        "medium": TaskPriority.medium,
+        "high": TaskPriority.high,
+        "urgent": TaskPriority.urgent,
+    }
+    # Walk tasks in order, tracking current cursor (next available workday)
+    # position_to_task maps template position → created Task (for dependency wiring)
+    cursor = base
+    position_to_task: dict[int, Task] = {}
+    for tt in sorted_tasks:
+        duration = (
+            (tt.day_offset_end - tt.day_offset_start + 1)
+            if tt.day_offset_end is not None
+            else 1
+        )
+        task_start = cursor
+        task_end = _add_working_days(cursor, duration)
+        cursor = task_end + timedelta(days=1)
+        cursor = _next_workday(cursor)
         task = Task(
             project_id=project.id,
             title=tt.title,
@@ -168,10 +213,27 @@ async def apply_template(
             priority=priority_map.get(tt.priority, TaskPriority.medium),
             status=TaskStatus.todo,
             position=tt.position,
-            start_date=base + timedelta(days=tt.day_offset_start),
-            end_date=(base + timedelta(days=tt.day_offset_end)) if tt.day_offset_end is not None else None,
+            start_date=task_start,
+            end_date=task_end,
+            due_date=task_end,
         )
         db.add(task)
+        await db.flush()  # get task.id before wiring deps
+        position_to_task[tt.position] = task
+
+    # Wire task dependencies from depends_on_position
+    from app.models.v3_models import TaskDependency
+    for tt in sorted_tasks:
+        if tt.depends_on_position is not None:
+            from_task = position_to_task.get(tt.depends_on_position)
+            to_task = position_to_task.get(tt.position)
+            if from_task and to_task and from_task.id != to_task.id:
+                db.add(TaskDependency(
+                    from_task_id=from_task.id,
+                    to_task_id=to_task.id,
+                    dep_type="finish_to_start",
+                ))
+
     await db.commit()
     await db.refresh(project)
     return ProjectOut(**project.__dict__, member_count=1)

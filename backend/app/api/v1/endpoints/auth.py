@@ -21,6 +21,18 @@ limiter = Limiter(key_func=get_remote_address)
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 async def register(request: Request, body: UserCreate, db: AsyncSession = Depends(get_db)):
+    # Check allow_registration system setting
+    try:
+        from app.models.system_setting import SystemSetting
+        r = await db.execute(select(SystemSetting).where(SystemSetting.key == "allow_registration"))
+        row = r.scalar_one_or_none()
+        allow = (row.value if row else None) or "true"
+    except Exception:
+        allow = "true"
+
+    if allow.lower() not in ("true", "1", "yes"):
+        raise HTTPException(status_code=403, detail="自行註冊已關閉，請聯絡管理員開通帳號")
+
     result = await db.execute(select(User).where(User.email == body.email))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")

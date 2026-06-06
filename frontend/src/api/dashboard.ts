@@ -1,20 +1,34 @@
 import { api } from './client'
 
+export interface DashboardTask {
+  id: string
+  title: string
+  status: string
+  priority: string
+  due_date: string | null
+  project_id: string
+}
+
+export interface DeadlineProject {
+  id: string
+  name: string
+  color: string
+  end_date: string
+  days_left: number
+  task_total: number
+  task_done: number
+}
+
 export interface DashboardSummary {
   kpi: {
     todo: number
     overdue: number
     completed_this_week: number
   }
-  trend: { date: string; count: number }[]
-  action_required: {
-    id: string
-    title: string
-    status: string
-    priority: string
-    due_date: string | null
-    project_id: string
-  }[]
+  today_due: DashboardTask[]
+  action_required: DashboardTask[]
+  upcoming: DashboardTask[]
+  deadline_projects: DeadlineProject[]
 }
 
 export const dashboardApi = {

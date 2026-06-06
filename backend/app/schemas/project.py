@@ -20,6 +20,7 @@ class ProjectUpdate(BaseModel):
     description: str | None = None
     color: str | None = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
     is_archived: bool | None = None
+    recurrence_rule: str | None = None
     start_date: date | None = None
     end_date: date | None = None
 
@@ -39,11 +40,27 @@ class ProjectOut(BaseModel):
     description: str | None
     color: str
     is_archived: bool
+    recurrence_rule: str | None = None
     start_date: date | None = None
     end_date: date | None = None
     created_at: datetime
     updated_at: datetime
     member_count: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class ProjectOverviewItem(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: str | None
+    color: str
+    is_archived: bool
+    start_date: date | None = None
+    end_date: date | None = None
+    member_count: int = 0
+    task_total: int = 0
+    task_done: int = 0
 
     model_config = {"from_attributes": True}
 

@@ -6,15 +6,12 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
 import ProjectPage from './pages/ProjectPage'
+import ProjectOverviewPage from './pages/ProjectOverviewPage'
 import DailyTaskPage from './pages/DailyTaskPage'
 import TemplatesPage from './pages/TemplatesPage'
 import CalendarPage from './pages/CalendarPage'
 import SettingsPage from './pages/SettingsPage'
-import TimeReportPage from './pages/TimeReportPage'
-import WorkloadPage from './pages/WorkloadPage'
-import InsightsPage from './pages/InsightsPage'
-import AnnouncementsPage from './pages/AnnouncementsPage'
-import PublicProjectPage from './pages/PublicProjectPage'
+import ArchivedProjectsPage from './pages/ArchivedProjectsPage'
 import Layout from './components/ui/Layout'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -38,7 +35,6 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
-      <Route path="/public/projects/:token" element={<PublicProjectPage />} />
       <Route
         path="/*"
         element={
@@ -46,15 +42,13 @@ export default function App() {
             <Layout>
               <Routes>
                 <Route path="/" element={<DashboardPage />} />
+                <Route path="/overview" element={<ProjectOverviewPage />} />
                 <Route path="/projects/:projectId/*" element={<ProjectPage />} />
                 <Route path="/daily" element={<DailyTaskPage />} />
                 <Route path="/templates" element={<TemplatesPage />} />
                 <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/time-report" element={<TimeReportPage />} />
-                <Route path="/workload" element={<WorkloadPage />} />
-                <Route path="/insights" element={<InsightsPage />} />
-                <Route path="/announcements" element={<AnnouncementsPage />} />
+                <Route path="/archived" element={<ArchivedProjectsPage />} />
               </Routes>
             </Layout>
           </RequireAuth>
