@@ -1,7 +1,7 @@
 """Tests for app.main: health, lifespan (superadmin), websocket auth, auto-archive helper."""
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
