@@ -47,7 +47,7 @@ async def list_announcements(
         .where(
             and_(
                 Announcement.is_active == True,
-                or_(Announcement.expires_at is None, Announcement.expires_at > now),
+                or_(Announcement.expires_at.is_(None), Announcement.expires_at > now),
             )
         )
         .order_by(Announcement.created_at.desc())

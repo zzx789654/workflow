@@ -83,7 +83,13 @@ async def spawn_next(
     if not task.recurrence_rule:
         raise HTTPException(status_code=400, detail="Task has no recurrence rule")
 
-    base_due = date.fromisoformat(task.due_date) if task.due_date else date.today()
+    # due_date 是 Date 欄位；可能為 date 物件或（歷史資料）ISO 字串，統一轉成 date。
+    if isinstance(task.due_date, str):
+        base_due = date.fromisoformat(task.due_date)
+    elif isinstance(task.due_date, date):
+        base_due = task.due_date
+    else:
+        base_due = date.today()
     if task.recurrence_rule == "daily":
         next_due = base_due + timedelta(days=1)
     elif task.recurrence_rule == "weekly":
@@ -99,7 +105,7 @@ async def spawn_next(
         description=task.description,
         priority=task.priority,
         status="todo",
-        due_date=next_due.isoformat(),
+        due_date=next_due,
         recurrence_rule=task.recurrence_rule,
         recurrence_parent_id=task.id,
         position=0,

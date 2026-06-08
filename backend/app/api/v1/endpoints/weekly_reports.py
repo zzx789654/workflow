@@ -55,7 +55,7 @@ async def get_weekly_report(
             and_(
                 Task.project_id.in_(proj_ids),
                 Task.status != "done",
-                Task.due_date < now.date().isoformat(),
+                Task.due_date < now.date(),
             )
         )
         .order_by(Task.due_date)
