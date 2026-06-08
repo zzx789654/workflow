@@ -12,7 +12,14 @@ from app.models.daily_task import DailyTask, DailyTaskArchive
 from app.models.project import Project, ProjectMember, ProjectRole
 from app.models.task import Task
 from app.models.user import User
-from app.schemas.project import AddMemberRequest, ProjectCreate, ProjectMemberOut, ProjectOut, ProjectOverviewItem, ProjectUpdate
+from app.schemas.project import (
+    AddMemberRequest,
+    ProjectCreate,
+    ProjectMemberOut,
+    ProjectOut,
+    ProjectOverviewItem,
+    ProjectUpdate,
+)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 

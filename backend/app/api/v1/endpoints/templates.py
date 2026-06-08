@@ -2,6 +2,26 @@ import uuid
 from datetime import date, timedelta
 from typing import Annotated
 
+from fastapi import APIRouter, Body, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.api.deps import get_current_user
+from app.db.session import get_db
+from app.models.project import Project, ProjectMember, ProjectRole
+from app.models.task import Task, TaskAssignee, TaskPriority, TaskStatus
+from app.models.template import ProjectTemplate, TemplateTask
+from app.models.user import User
+from app.schemas.project import ProjectOut
+from app.schemas.template import (
+    ApplyTemplateRequest,
+    ProjectTemplateCreate,
+    ProjectTemplateOut,
+    ProjectTemplateUpdate,
+    TemplateTaskCreate,
+)
+
 
 def _next_workday(d: date) -> date:
     """Advance d to the next weekday if it lands on Sat/Sun."""
@@ -22,26 +42,6 @@ def _add_working_days(start: date, working_days: int) -> date:
         if d.weekday() < 5:
             remaining -= 1
     return d
-
-from fastapi import APIRouter, Body, Depends, HTTPException
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-
-from app.api.deps import get_current_user
-from app.db.session import get_db
-from app.models.project import Project, ProjectMember, ProjectRole
-from app.models.task import Task, TaskAssignee, TaskPriority, TaskStatus
-from app.models.template import ProjectTemplate, TemplateTask
-from app.models.user import User
-from app.schemas.project import ProjectOut
-from app.schemas.template import (
-    ApplyTemplateRequest,
-    ProjectTemplateCreate,
-    ProjectTemplateOut,
-    ProjectTemplateUpdate,
-    TemplateTaskCreate,
-)
 
 router = APIRouter(prefix="/project-templates", tags=["project-templates"])
 

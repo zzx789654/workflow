@@ -7,16 +7,17 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import exists as sa_exists
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
-from app.models.daily_task import DailyTask, DailyTaskArchive, DailyTaskLabel
-from app.models.task import Task
+from app.models.daily_task import DailyTask, DailyTaskArchive, DailyTaskLabel, DailyTaskStatus
 from app.models.project import Project
-from app.models.user import User
+from app.models.task import Task, TaskStatus
+from app.models.user import User, UserRole
 from app.schemas.daily_task import DailyTaskCreate, DailyTaskOut, DailyTaskUpdate, LinkedTaskInfo
 
 router = APIRouter(prefix="/daily-tasks", tags=["daily-tasks"])
@@ -45,7 +46,6 @@ def _to_out(dt: DailyTask) -> DailyTaskOut:
 
 
 async def _load(task_id: uuid.UUID, user: User, db: AsyncSession) -> DailyTask:
-    from app.models.user import UserRole
     q = (
         select(DailyTask)
         .options(
@@ -72,8 +72,6 @@ async def list_daily_tasks(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    from app.models.daily_task import DailyTaskStatus
-    from app.models.user import UserRole
     is_admin = current_user.role == UserRole.admin
 
     q = (
@@ -90,8 +88,6 @@ async def list_daily_tasks(
     if task_date:
         q = q.where(DailyTask.date == task_date)
     if pending_only:
-        # 未完成：所有日期的 pending/in_progress + 今天的 done/cancelled
-        from sqlalchemy import or_, and_
         today = date.today()
         q = q.where(
             or_(
@@ -201,16 +197,13 @@ def _compute_cutoff(mode: str, before_date: date | None) -> date:
 
 
 def _build_archive_query(uid, cutoff: date):
-    from app.models.daily_task import DailyTaskStatus
-    from app.models.task import Task as ProjectTask, TaskStatus
-    from sqlalchemy import exists as sa_exists
     # 阻擋封存：linked task 存在且尚未完成（只有 done 算完成）
     unfinished_linked = (
-        select(ProjectTask.id)
+        select(Task.id)
         .where(
             and_(
-                ProjectTask.id == DailyTask.linked_task_id,
-                ProjectTask.status != TaskStatus.done,
+                Task.id == DailyTask.linked_task_id,
+                Task.status != TaskStatus.done,
             )
         )
         .correlate(DailyTask)
@@ -461,8 +454,6 @@ async def run_auto_archive(db_factory) -> int:
     """自動將符合使用者設定天數的已完成日常任務搬移至封存表。
     回傳封存總筆數。
     """
-    from app.models.daily_task import DailyTaskStatus
-
     today = date.today()
     total_archived = 0
 
@@ -476,15 +467,12 @@ async def run_auto_archive(db_factory) -> int:
         for user in users:
             cutoff = today - timedelta(days=user.auto_archive_days)
 
-            from app.models.task import Task as ProjectTask, TaskStatus
-            from sqlalchemy import exists
-
             unfinished_linked = (
-                select(ProjectTask.id)
+                select(Task.id)
                 .where(
                     and_(
-                        ProjectTask.id == DailyTask.linked_task_id,
-                        ProjectTask.status != TaskStatus.done,
+                        Task.id == DailyTask.linked_task_id,
+                        Task.status != TaskStatus.done,
                     )
                 )
                 .correlate(DailyTask)
@@ -496,7 +484,7 @@ async def run_auto_archive(db_factory) -> int:
                         DailyTask.user_id == user.id,
                         DailyTask.status == DailyTaskStatus.done,
                         DailyTask.date <= cutoff,
-                        ~exists(unfinished_linked),
+                        ~sa_exists(unfinished_linked),
                     )
                 )
             )

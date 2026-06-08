@@ -71,7 +71,7 @@ async def list_milestone_logs(
     )
     logs = logs_result.scalars().all()
 
-    task_ids = [l.task_id for l in logs if l.task_id is not None]
+    task_ids = [log.task_id for log in logs if log.task_id is not None]
 
     # 一次查詢所有關聯日常任務（依 date 升冪，方便前端直接顯示）
     daily_tasks_map: dict[uuid.UUID, list[DailyTaskInfo]] = {}

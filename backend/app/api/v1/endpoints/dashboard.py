@@ -155,7 +155,7 @@ async def get_dashboard_summary(
             and_(
                 Project.id.in_(project_ids),
                 Project.is_archived == False,
-                Project.end_date != None,
+                Project.end_date is not None,
                 Project.end_date <= today + timedelta(days=14),
             )
         )

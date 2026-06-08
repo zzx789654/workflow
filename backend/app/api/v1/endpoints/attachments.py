@@ -179,16 +179,13 @@ async def list_project_files(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    from sqlalchemy.orm import selectinload
-    from app.models.user import User as UserModel
-
     await _check_member(project_id, current_user, db)
 
     # 聯查 TaskAttachment + Task + User(uploader)
     res = await db.execute(
         select(TaskAttachment)
         .join(Task, TaskAttachment.task_id == Task.id)
-        .join(UserModel, TaskAttachment.user_id == UserModel.id)
+        .join(User, TaskAttachment.user_id == User.id)
         .where(Task.project_id == project_id)
         .order_by(TaskAttachment.created_at.desc())
     )
@@ -197,7 +194,7 @@ async def list_project_files(
     out = []
     for att in attachments:
         task_obj = await db.get(Task, att.task_id)
-        uploader = await db.get(UserModel, att.user_id)
+        uploader = await db.get(User, att.user_id)
         out.append(ProjectFileOut(
             id=att.id,
             task_id=att.task_id,
