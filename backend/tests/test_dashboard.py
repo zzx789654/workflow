@@ -11,7 +11,9 @@ async def test_dashboard_summary(client: AsyncClient, admin_token: str):
     assert "todo" in data["kpi"]
     assert "overdue" in data["kpi"]
     assert "completed_this_week" in data["kpi"]
-    assert "daily_tasks" in data
+    assert "today_due" in data
+    assert "action_required" in data
+    assert "deadline_projects" in data
 
 
 @pytest.mark.asyncio
