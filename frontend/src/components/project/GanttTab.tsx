@@ -100,10 +100,21 @@ export default function GanttTab({ projectId }: Props) {
     barInfo[task.id] = { x: left, y, right: left + width }
   })
 
-  // 篩選出 from 和 to 都在 withDates 裡的依賴
+  // 篩選出 from 和 to 都在 withDates 裡的依賴，並為每條線分配垂直通道偏移（避免重疊）
   const visibleDeps = deps.filter(
     (d) => barInfo[d.from_task_id] && barInfo[d.to_task_id]
   )
+
+  // 相同垂直通道（from_right 相近）的線依序錯開 5px
+  const depChannelOffset: Record<string, number> = {}
+  const channelCount: Record<number, number> = {}
+  visibleDeps.forEach((dep) => {
+    const from = barInfo[dep.from_task_id]
+    const bucketX = Math.round((NAME_W + from.right) / 5) * 5
+    const count = channelCount[bucketX] ?? 0
+    depChannelOffset[dep.id] = count * 5
+    channelCount[bucketX] = count + 1
+  })
 
   return (
     <div className="overflow-x-auto">
@@ -206,7 +217,7 @@ export default function GanttTab({ projectId }: Props) {
               const y1 = from.y
               const x2 = NAME_W + to.x
               const y2 = to.y
-              const elbow = 10
+              const elbow = 10 + (depChannelOffset[dep.id] ?? 0)
               // 直角折線：右出 elbow → 垂直到目標行 → 水平入左端
               // 若 to 在 from 左側或空間不足，向下繞行
               const path = x1 + elbow <= x2 - elbow

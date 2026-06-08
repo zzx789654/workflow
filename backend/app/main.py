@@ -1,4 +1,7 @@
+import asyncio
+import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, time
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +17,7 @@ from app.db.session import AsyncSessionLocal
 from app.models.user import User, UserRole
 from app.websocket.manager import manager
 
+logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
 
 
@@ -32,10 +36,39 @@ async def _ensure_superadmin() -> None:
         await db.commit()
 
 
+async def _auto_archive_loop() -> None:
+    """每日 00:05 自動封存符合設定的已完成日常任務。"""
+    from app.api.v1.endpoints.daily_tasks import run_auto_archive
+
+    while True:
+        try:
+            now = datetime.now()
+            # 計算距下一個 00:05 的秒數
+            target = now.replace(hour=0, minute=5, second=0, microsecond=0)
+            if now >= target:
+                target = target.replace(day=target.day + 1)
+            wait_seconds = (target - now).total_seconds()
+            await asyncio.sleep(wait_seconds)
+            count = await run_auto_archive(AsyncSessionLocal)
+            if count > 0:
+                logger.info("Auto-archive: moved %d daily tasks to archive", count)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.exception("Auto-archive error: %s", exc)
+            await asyncio.sleep(3600)  # 出錯後等 1 小時再試
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await _ensure_superadmin()
+    task = asyncio.create_task(_auto_archive_loop())
     yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(
@@ -58,6 +91,21 @@ app.add_middleware(
 )
 
 app.include_router(v1_router)
+
+
+@app.websocket("/ws/notifications")
+async def ws_notifications(websocket: WebSocket, token: str = ""):
+    """全域通知 WS，每位登入用戶各連一條，用於即時接收跨專案的通知事件。"""
+    user_id = decode_token(token)
+    if not user_id:
+        await websocket.close(code=4001)
+        return
+    await manager.connect(websocket, f"__notif_{user_id}", user_id)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(f"__notif_{user_id}", user_id)
 
 
 @app.websocket("/ws/{project_id}")

@@ -12,7 +12,34 @@ export interface User {
   role: UserRole
   is_active: boolean
   avatar_url: string | null
+  auto_archive_days: number
   created_at: string
+}
+
+export interface ArchiveHistoryItem {
+  id: string
+  title: string
+  description: string | null
+  status: DailyTaskStatus
+  progress: number
+  date: string
+  work_minutes: number
+  linked_task_id: string | null
+  linked_task_title: string | null
+  linked_project_id: string | null
+  linked_project_name: string | null
+  archived_at: string
+}
+
+export interface ArchiveHistoryStats {
+  total_records: number
+  total_work_minutes: number
+  total_work_hours: number
+}
+
+export interface ArchiveHistoryResponse {
+  items: ArchiveHistoryItem[]
+  stats: ArchiveHistoryStats
 }
 
 export interface Project {
@@ -40,6 +67,7 @@ export interface ProjectOverviewItem {
   member_count: number
   task_total: number
   task_done: number
+  my_role: string | null
 }
 
 export interface ProjectMember {
@@ -96,6 +124,7 @@ export interface Notification {
   message: string
   ref_id: string | null
   ref_type: string | null
+  project_id: string | null
   read_at: string | null
   created_at: string
 }
@@ -193,6 +222,13 @@ export interface CalendarEvent {
   labels: string[]
 }
 
+export interface MilestoneDailyTask {
+  id: string
+  title: string
+  date: string        // ISO date "YYYY-MM-DD"
+  work_minutes: number
+}
+
 export interface MilestoneLog {
   id: string
   project_id: string
@@ -202,6 +238,7 @@ export interface MilestoneLog {
   completed_by_name: string | null
   work_minutes: number
   daily_task_minutes: number
+  daily_tasks: MilestoneDailyTask[]
   note: string | null
   completed_at: string
 }

@@ -164,6 +164,11 @@ async def get_dashboard_summary(
     )
     deadline_projects = deadline_result.scalars().all()
 
+    # 建立 project_id → name 對照表（供 _task_dict 使用）
+    all_task_pids = {t.project_id for t in list(today_tasks) + list(urgent_tasks) + list(upcoming_tasks)}
+    proj_name_result = await db.execute(select(Project.id, Project.name).where(Project.id.in_(all_task_pids)))
+    project_name_map: dict = {str(r[0]): r[1] for r in proj_name_result.all()}
+
     # 各專案完成率
     async def _project_progress(pid):
         total_r = await db.execute(select(func.count()).where(Task.project_id == pid))
@@ -186,14 +191,43 @@ async def get_dashboard_summary(
             "task_done": done,
         })
 
+    # 待辦與進行中日常任務（所有日期）
+    daily_today_result = await db.execute(
+        select(DailyTask)
+        .where(
+            and_(
+                DailyTask.user_id == uid,
+                DailyTask.status.in_([DailyTaskStatus.pending, DailyTaskStatus.in_progress]),
+            )
+        )
+        .order_by(DailyTask.date.asc(), DailyTask.created_at.asc())
+        .limit(20)
+    )
+    daily_today = daily_today_result.scalars().all()
+
     def _task_dict(t: Task) -> dict:
+        pid = str(t.project_id)
         return {
             "id": str(t.id),
             "title": t.title,
             "status": t.status,
             "priority": t.priority,
             "due_date": t.due_date.isoformat() if t.due_date else None,
-            "project_id": str(t.project_id),
+            "project_id": pid,
+            "project_name": project_name_map.get(pid),
+            "item_type": "task",
+        }
+
+    def _daily_dict(d: DailyTask) -> dict:
+        return {
+            "id": str(d.id),
+            "title": d.title,
+            "status": d.status,
+            "priority": "medium",
+            "due_date": d.date.isoformat(),
+            "project_id": None,
+            "item_type": "daily",
+            "work_minutes": d.work_minutes,
         }
 
     return {
@@ -202,7 +236,7 @@ async def get_dashboard_summary(
             "overdue": overdue_count,
             "completed_this_week": completed_count,
         },
-        "today_due": [_task_dict(t) for t in today_tasks],
+        "today_due": [_task_dict(t) for t in today_tasks] + [_daily_dict(d) for d in daily_today],
         "action_required": [_task_dict(t) for t in urgent_tasks],
         "upcoming": [_task_dict(t) for t in upcoming_tasks],
         "deadline_projects": deadline_out,

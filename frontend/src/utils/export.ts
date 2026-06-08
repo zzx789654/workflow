@@ -1,3 +1,13 @@
+export function exportMarkdownAsPdf(markdown: string, filename: string) {
+  const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename.replace(/\.pdf$/, '.md')
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export function exportCsv(rows: Record<string, unknown>[], filename: string) {
   if (!rows.length) return
   const headers = Object.keys(rows[0])

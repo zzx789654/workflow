@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -44,10 +44,7 @@ async def search(
             select(Project)
             .where(
                 Project.id.in_(project_ids),
-                or_(
-                    Project.name.ilike(pattern, escape=_ESC),
-                    Project.description.ilike(pattern, escape=_ESC),
-                ),
+                Project.name.ilike(pattern, escape=_ESC),
             )
             .limit(10)
         )
@@ -72,10 +69,7 @@ async def search(
             .options(selectinload(Task.project))
             .where(
                 Task.project_id.in_(project_ids),
-                or_(
-                    Task.title.ilike(pattern, escape=_ESC),
-                    Task.description.ilike(pattern, escape=_ESC),
-                ),
+                Task.title.ilike(pattern, escape=_ESC),
             )
             .limit(20)
         )
@@ -93,19 +87,15 @@ async def search(
                 }
             )
 
-    # 搜尋日常作業
+    # 搜尋日常作業（admin 看所有人，一般使用者只看自己）
     if type in ("all", "daily"):
-        d_result = await db.execute(
-            select(DailyTask)
-            .where(
-                DailyTask.user_id == uid,
-                or_(
-                    DailyTask.title.ilike(pattern, escape=_ESC),
-                    DailyTask.description.ilike(pattern, escape=_ESC),
-                ),
-            )
-            .limit(10)
+        from app.models.user import UserRole
+        daily_q = select(DailyTask).where(
+            DailyTask.title.ilike(pattern, escape=_ESC)
         )
+        if current_user.role != UserRole.admin:
+            daily_q = daily_q.where(DailyTask.user_id == uid)
+        d_result = await db.execute(daily_q.limit(10))
         for d in d_result.scalars().all():
             results.append(
                 {

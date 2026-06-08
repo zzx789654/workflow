@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { milestonesApi } from '../../api/milestones'
-import type { MilestoneLog } from '../../types'
+import type { MilestoneLog, MilestoneDailyTask } from '../../types'
 
 interface Props { projectId: string }
 
@@ -10,22 +10,50 @@ const fmtHours = (minutes: number) => {
   return `${h % 1 === 0 ? h.toFixed(0) : h.toFixed(1)} h`
 }
 
-const hoursTomMinutes = (hours: string) => {
-  const h = parseFloat(hours)
-  return isNaN(h) || h <= 0 ? 0 : Math.round(h * 60)
+const fmtDate = (iso: string) => {
+  const d = new Date(iso + 'T00:00:00')
+  return d.toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' })
 }
 
-const minutesToHours = (minutes: number) => {
-  if (!minutes) return ''
-  const h = minutes / 60
-  return h % 1 === 0 ? String(h) : h.toFixed(1)
+function DailyTaskTree({ tasks }: { tasks: MilestoneDailyTask[] }) {
+  if (!tasks.length) return (
+    <div className="ml-9 mt-1 text-xs text-gray-400 italic">無關聯日常任務</div>
+  )
+  return (
+    <div className="ml-9 mt-1 space-y-0.5">
+      {tasks.map((dt, idx) => (
+        <div key={dt.id} className="flex items-center gap-2 text-xs text-gray-600 py-0.5">
+          {/* 樹狀線 */}
+          <div className="flex-shrink-0 flex items-center">
+            <span className="text-gray-300 select-none">
+              {idx < tasks.length - 1 ? '├' : '└'}
+            </span>
+          </div>
+          <span className="text-gray-400 w-16 flex-shrink-0">{fmtDate(dt.date)}</span>
+          <span className="flex-1 truncate">{dt.title}</span>
+          <span className="flex-shrink-0 font-medium text-violet-600 bg-violet-50 rounded px-1.5 py-0.5">
+            {fmtHours(dt.work_minutes)}
+          </span>
+        </div>
+      ))}
+      {/* 小計列 */}
+      <div className="flex items-center gap-2 text-xs pt-1 border-t border-gray-100 mt-1">
+        <div className="w-3 flex-shrink-0" />
+        <span className="text-gray-400 w-16 flex-shrink-0" />
+        <span className="flex-1 text-gray-400">小計</span>
+        <span className="flex-shrink-0 font-semibold text-violet-700">
+          {fmtHours(tasks.reduce((s, t) => s + t.work_minutes, 0))}
+        </span>
+      </div>
+    </div>
+  )
 }
 
 export default function MilestonesTab({ projectId }: Props) {
   const [logs, setLogs] = useState<MilestoneLog[]>([])
   const [loading, setLoading] = useState(true)
-  const [rowValues, setRowValues] = useState<Record<string, { hours: string; note: string }>>({})
-  const [saving, setSaving] = useState<string | null>(null)
+  const [notes, setNotes] = useState<Record<string, string>>({})
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
   const load = async () => {
     setLoading(true)
@@ -33,30 +61,16 @@ export default function MilestonesTab({ projectId }: Props) {
       const res = await milestonesApi.list(projectId)
       const data = res.data as unknown as MilestoneLog[]
       setLogs(data)
-      const init: Record<string, { hours: string; note: string }> = {}
-      for (const l of data) {
-        init[l.id] = { hours: minutesToHours(l.work_minutes), note: l.note ?? '' }
-      }
-      setRowValues(init)
+      const init: Record<string, string> = {}
+      for (const l of data) { init[l.id] = l.note ?? '' }
+      setNotes(init)
     } finally { setLoading(false) }
   }
 
   useEffect(() => { load() }, [projectId])
 
-  const updateRow = (id: string, patch: Partial<{ hours: string; note: string }>) =>
-    setRowValues(v => ({ ...v, [id]: { ...v[id], ...patch } }))
-
-  const handleSave = async (log: MilestoneLog) => {
-    const row = rowValues[log.id]
-    if (!row) return
-    setSaving(log.id)
-    try {
-      await milestonesApi.update(projectId, log.id, {
-        work_minutes: hoursTomMinutes(row.hours),
-        note: row.note || undefined,
-      })
-      load()
-    } finally { setSaving(null) }
+  const handleNoteSave = async (log: MilestoneLog) => {
+    await milestonesApi.update(projectId, log.id, { note: notes[log.id] || undefined })
   }
 
   const handleDelete = async (id: string) => {
@@ -65,39 +79,36 @@ export default function MilestonesTab({ projectId }: Props) {
     setLogs(l => l.filter(x => x.id !== id))
   }
 
+  const toggleExpand = (id: string) =>
+    setExpanded(v => ({ ...v, [id]: !v[id] }))
+
   if (loading) return <div className="text-center py-16 text-gray-400">載入中…</div>
 
-  const totalMinutes = logs.reduce((sum, l) => sum + (l.work_minutes ?? 0), 0)
   const totalDailyMinutes = logs.reduce((sum, l) => sum + (l.daily_task_minutes ?? 0), 0)
-  const filledCount  = logs.filter(l => l.work_minutes > 0).length
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-base font-semibold text-gray-800">完成記錄</h2>
-          <p className="text-xs text-gray-400 mt-0.5">當專案中任何任務完成時自動記錄，可直接在此填寫工時。</p>
+          <p className="text-xs text-gray-400 mt-0.5">當專案中任何任務完成時自動記錄，工時來自關聯的日常任務加總。</p>
         </div>
         <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">{logs.length} 筆</span>
       </div>
 
       {logs.length > 0 && (
-        <div className="grid grid-cols-4 gap-3 mb-5">
-          <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-center">
-            <p className="text-lg font-bold text-indigo-600">{fmtHours(totalMinutes)}</p>
-            <p className="text-xs text-indigo-400 mt-0.5">手填工時</p>
-          </div>
+        <div className="grid grid-cols-3 gap-3 mb-5">
           <div className="bg-violet-50 border border-violet-100 rounded-xl p-3 text-center">
             <p className="text-lg font-bold text-violet-600">{fmtHours(totalDailyMinutes)}</p>
-            <p className="text-xs text-violet-400 mt-0.5">日常任務時數</p>
+            <p className="text-xs text-violet-400 mt-0.5">總工時</p>
           </div>
           <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-center">
             <p className="text-lg font-bold text-green-600">{logs.length}</p>
             <p className="text-xs text-green-400 mt-0.5">已完成任務</p>
           </div>
-          <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
-            <p className="text-lg font-bold text-amber-600">{filledCount}/{logs.length}</p>
-            <p className="text-xs text-amber-400 mt-0.5">已填工時</p>
+          <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-center">
+            <p className="text-lg font-bold text-indigo-600">{logs.filter(l => l.daily_task_minutes > 0).length}/{logs.length}</p>
+            <p className="text-xs text-indigo-400 mt-0.5">有日常時數</p>
           </div>
         </div>
       )}
@@ -110,14 +121,28 @@ export default function MilestonesTab({ projectId }: Props) {
       ) : (
         <div className="space-y-3">
           {logs.map(log => {
-            const row = rowValues[log.id] ?? { hours: '', note: '' }
-            const isSaving = saving === log.id
+            const isExpanded = expanded[log.id] ?? true
+            const hasDailyTasks = (log.daily_tasks ?? []).length > 0
             return (
               <div key={log.id} className="card border border-gray-100 hover:border-gray-200 transition-colors">
-                <div className="flex items-start gap-3 mb-3">
-                  <div className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-sm flex-shrink-0 font-bold mt-0.5">✓</div>
+                {/* 任務標題列 */}
+                <div className="flex items-start gap-3">
+                  {/* 展開/收合按鈕 */}
+                  <button
+                    onClick={() => toggleExpand(log.id)}
+                    className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-sm flex-shrink-0 font-bold mt-0.5 hover:bg-green-200 transition-colors"
+                    title={isExpanded ? '收合日常任務' : '展開日常任務'}
+                  >
+                    {isExpanded ? '▾' : '▸'}
+                  </button>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 truncate">{log.task_title}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-medium text-gray-900 truncate">{log.task_title}</p>
+                      {/* 總工時標籤 */}
+                      <span className="text-xs font-semibold text-violet-700 bg-violet-50 border border-violet-100 rounded px-1.5 py-0.5 flex-shrink-0">
+                        {hasDailyTasks ? fmtHours(log.daily_task_minutes) : '—'}
+                      </span>
+                    </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-0.5 text-xs text-gray-400">
                       {log.completed_by_name && (
                         <span className="flex items-center gap-1">
@@ -128,51 +153,28 @@ export default function MilestonesTab({ projectId }: Props) {
                         </span>
                       )}
                       <span>{new Date(log.completed_at).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                      {hasDailyTasks && (
+                        <span className="text-violet-400">{log.daily_tasks.length} 筆日常任務</span>
+                      )}
                     </div>
                   </div>
                   <button onClick={() => handleDelete(log.id)} className="text-xs text-red-400 hover:text-red-600 flex-shrink-0">刪除</button>
                 </div>
 
-                {/* 日常任務時數加總 */}
-                {log.daily_task_minutes > 0 && (
-                  <div className="flex items-center gap-1.5 mb-2 text-xs text-violet-600 bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-1 w-fit">
-                    <span>📋 日常任務時數</span>
-                    <span className="font-semibold">{fmtHours(log.daily_task_minutes)}</span>
-                  </div>
+                {/* 樹狀日常任務清單（可展開/收合） */}
+                {isExpanded && (
+                  <DailyTaskTree tasks={log.daily_tasks ?? []} />
                 )}
 
-                {/* 內聯工時欄位 */}
-                <div className="flex gap-2 items-end">
-                  <div className="flex-1">
-                    <label className="text-xs text-gray-500 block mb-1">工時（小時）</label>
-                    <input
-                      type="number" min={0} step={0.5} placeholder="例：1.5"
-                      className="input w-full text-sm"
-                      value={row.hours}
-                      onChange={e => updateRow(log.id, { hours: e.target.value })}
-                      onBlur={() => handleSave(log)}
-                    />
-                    {row.hours && parseFloat(row.hours) > 0 && (
-                      <p className="text-xs text-gray-400 mt-0.5">= {fmtHours(hoursTomMinutes(row.hours))}</p>
-                    )}
-                  </div>
-                  <div className="flex-[2]">
-                    <label className="text-xs text-gray-500 block mb-1">備註（選填）</label>
-                    <input
-                      type="text" placeholder="補充說明"
-                      className="input w-full text-sm"
-                      value={row.note}
-                      onChange={e => updateRow(log.id, { note: e.target.value })}
-                      onBlur={() => handleSave(log)}
-                    />
-                  </div>
-                  <button
-                    onClick={() => handleSave(log)}
-                    disabled={isSaving}
-                    className="btn-primary text-sm px-4 mb-0.5"
-                  >
-                    {isSaving ? '…' : '儲存'}
-                  </button>
+                {/* 備註（onBlur 自動儲存） */}
+                <div className="mt-3">
+                  <input
+                    type="text" placeholder="備註（選填）"
+                    className="input w-full text-sm text-gray-500 placeholder-gray-300"
+                    value={notes[log.id] ?? ''}
+                    onChange={e => setNotes(v => ({ ...v, [log.id]: e.target.value }))}
+                    onBlur={() => handleNoteSave(log)}
+                  />
                 </div>
               </div>
             )

@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_project_membership
 from app.api.v1.endpoints.milestones import record_task_completion
-from app.api.v1.endpoints.notifications import _parse_and_notify
+from app.api.v1.endpoints.notifications import _notify_task_progress, _parse_and_notify
 from app.db.session import get_db
 from app.models.project import ProjectRole
 from app.models.task import Task, TaskAssignee, TaskComment
@@ -107,6 +107,11 @@ async def update_task(
     await _require_write_access(project_id, current_user, db)
     task = await _load_task(task_id, db)
     was_done = task.status.value == "done"
+
+    # 記錄舊值，用於通知比對
+    old_status = task.status.value if hasattr(task.status, "value") else str(task.status)
+    old_progress = task.progress
+
     update_data = body.model_dump(exclude_none=True, exclude={"assignee_ids"})
     for field, value in update_data.items():
         setattr(task, field, value)
@@ -117,6 +122,7 @@ async def update_task(
         await db.flush()
         for uid in body.assignee_ids:
             db.add(TaskAssignee(task_id=task_id, user_id=uid))
+
     # 任務首次變為 done 時自動建立里程碑記錄
     now_done = getattr(task, "status", None)
     now_done_val = now_done.value if hasattr(now_done, "value") else str(now_done)
@@ -129,10 +135,32 @@ async def update_task(
             completed_by_name=current_user.display_name,
             db=db,
         )
+
+    # 記錄通知所需的新值（在 commit 前讀取，避免 expire 後失效）
+    new_status = now_done_val
+    new_progress = task.progress
+    notify_old_status = old_status if "status" in update_data else None
+    notify_new_status = new_status if "status" in update_data else None
+    notify_old_progress = old_progress if "progress" in update_data else None
+    notify_new_progress = new_progress if "progress" in update_data else None
+
     await db.commit()
     db.expire_all()  # 強制 SQLAlchemy 重新從 DB 載入，避免 identity map 快取舊 assignees
     loaded = await _load_task(task_id, db)
     await manager.broadcast(str(project_id), {"type": "task_updated", "task_id": str(task_id)})
+
+    # commit 後再通知，確保前端 fetch 時 DB 已有最新資料
+    await _notify_task_progress(
+        task=loaded,
+        actor=current_user,
+        db=db,
+        old_status=notify_old_status,
+        new_status=notify_new_status,
+        old_progress=notify_old_progress,
+        new_progress=notify_new_progress,
+    )
+    await db.commit()
+
     return loaded
 
 

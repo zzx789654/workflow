@@ -20,23 +20,42 @@ function TaskRow({ t }: { t: DashboardTask }) {
   const daysLeft = t.due_date
     ? Math.ceil((new Date(t.due_date).getTime() - Date.now()) / 86400000)
     : null
+  const isDaily = t.item_type === 'daily'
 
-  return (
-    <li>
-      <Link
-        to={`/projects/${t.project_id}`}
-        className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 transition-colors group"
-      >
+  const inner = (
+    <div className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 transition-colors group w-full text-left">
+      {isDaily ? (
+        <span className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 bg-violet-100 text-violet-700">日常</span>
+      ) : (
         <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${PRIORITY_COLOR[t.priority] ?? 'bg-gray-100 text-gray-500'}`}>
           {PRIORITY_LABEL[t.priority] ?? t.priority}
         </span>
-        <span className="flex-1 text-sm text-gray-700 group-hover:text-primary-600 truncate">{t.title}</span>
-        {t.due_date && (
-          <span className={`text-xs flex-shrink-0 ${isOverdue ? 'text-red-500 font-medium' : daysLeft !== null && daysLeft <= 3 ? 'text-amber-500 font-medium' : 'text-gray-400'}`}>
-            {isOverdue ? `逾期 ${Math.abs(daysLeft!)} 天` : daysLeft === 0 ? '今天到期' : `${daysLeft} 天後`}
-          </span>
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-gray-700 group-hover:text-primary-600 truncate">{t.title}</p>
+        {!isDaily && t.project_name && (
+          <p className="text-xs text-gray-400 truncate">{t.project_name}</p>
         )}
-      </Link>
+      </div>
+      {isDaily && t.work_minutes != null && t.work_minutes > 0 && (
+        <span className="text-xs flex-shrink-0 text-violet-500">
+          {t.work_minutes >= 60 ? `${(t.work_minutes / 60).toFixed(1)}h` : `${t.work_minutes}m`}
+        </span>
+      )}
+      {!isDaily && t.due_date && (
+        <span className={`text-xs flex-shrink-0 ${isOverdue ? 'text-red-500 font-medium' : daysLeft !== null && daysLeft <= 3 ? 'text-amber-500 font-medium' : 'text-gray-400'}`}>
+          {isOverdue ? `逾期 ${Math.abs(daysLeft!)} 天` : daysLeft === 0 ? '今天到期' : `${daysLeft} 天後`}
+        </span>
+      )}
+    </div>
+  )
+
+  return (
+    <li>
+      {isDaily
+        ? <Link to="/daily">{inner}</Link>
+        : <Link to={`/projects/${t.project_id}`}>{inner}</Link>
+      }
     </li>
   )
 }
@@ -155,9 +174,9 @@ export default function DashboardPage() {
       {/* 今日到期 + 需我處理 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="card">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">今日到期</h2>
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">日常任務</h2>
           {todayDue.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-6">今天沒有到期任務 🎉</p>
+            <p className="text-sm text-gray-400 text-center py-6">目前沒有待辦或進行中的日常任務 🎉</p>
           ) : (
             <ul className="space-y-1 max-h-52 overflow-y-auto">
               {todayDue.map(t => <TaskRow key={t.id} t={t} />)}

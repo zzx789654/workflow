@@ -6,7 +6,10 @@ export interface DashboardTask {
   status: string
   priority: string
   due_date: string | null
-  project_id: string
+  project_id: string | null
+  project_name: string | null
+  item_type: 'task' | 'daily'
+  work_minutes?: number
 }
 
 export interface DeadlineProject {

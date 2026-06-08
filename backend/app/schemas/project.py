@@ -61,6 +61,7 @@ class ProjectOverviewItem(BaseModel):
     member_count: int = 0
     task_total: int = 0
     task_done: int = 0
+    my_role: str | None = None
 
     model_config = {"from_attributes": True}
 

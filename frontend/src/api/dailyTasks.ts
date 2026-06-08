@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { DailyTask, DailyTaskStatus } from '../types'
+import type { ArchiveHistoryResponse, DailyTask, DailyTaskStatus } from '../types'
 
 export const dailyTasksApi = {
   list: (params?: { date?: string; label?: string; pending_only?: boolean }) =>
@@ -39,6 +39,22 @@ export const dailyTasksApi = {
   }>) => api.patch<DailyTask>(`/daily-tasks/${id}`, data),
 
   delete: (id: string) => api.delete(`/daily-tasks/${id}`),
+
+  archivePreview: (data: {
+    mode: 'done_immediately' | 'done_1month' | 'done_3months' | 'done_custom'
+    before_date?: string
+  }) => api.post<{ count: number; cutoff: string }>('/daily-tasks/archive/preview', data),
+
+  archive: (data: {
+    mode: 'done_immediately' | 'done_1month' | 'done_3months' | 'done_custom'
+    before_date?: string
+  }) => api.post<{ archived: number }>('/daily-tasks/archive', data),
+
+  getArchiveHistory: (params?: { date_from?: string; date_to?: string; linked_task_id?: string }) =>
+    api.get<ArchiveHistoryResponse>('/daily-tasks/archive/history', { params }),
+
+  exportArchiveHistoryCsv: (params?: { date_from?: string; date_to?: string; linked_task_id?: string }) =>
+    api.get('/daily-tasks/archive/history/export', { params, responseType: 'blob' }),
 
   downloadTemplate: () =>
     api.get('/daily-tasks/import/template', { responseType: 'blob' }),

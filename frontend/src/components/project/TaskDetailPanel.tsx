@@ -73,7 +73,6 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const deleteTask  = useTaskStore((s) => s.deleteTask)
   const createTask  = useTaskStore((s) => s.createTask)
-  const storeTasks  = useTaskStore((s) => s.tasks)
 
   useEffect(() => {
     dailyTasksApi.listByTask(task.id).then(r => setLinkedDailyTasks(r.data)).catch(() => {})
@@ -90,7 +89,7 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
     }).catch(() => {})
     dependenciesApi.list(projectId, task.id).then(r => setDeps(r.data)).catch(() => {})
     attachmentsApi.list(projectId, task.id).then(r => setAttachments(r.data)).catch(() => {})
-    setAllTasks(storeTasks.filter(t => t.id !== task.id))
+    tasksApi.list(projectId).then(r => setAllTasks(r.data.filter((t: Task) => t.id !== task.id))).catch(() => {})
     setSelectedAssignees(task.assignees.map(u => u.id))
   }, [task.id, projectId])
 
@@ -420,7 +419,7 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
 
           {/* ── F06 任務依賴 ──────────────────────────── */}
           <div className="border-t border-gray-100 pt-4">
-            <p className="text-xs font-medium text-gray-500 mb-3">前置任務</p>
+            <p className="text-xs font-medium text-gray-500 mb-3">後續任務</p>
             {deps.length === 0
               ? <p className="text-xs text-gray-400 mb-2">尚無設定</p>
               : (
@@ -441,7 +440,7 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
             {allTasks.length > 0 && (
               <form onSubmit={handleAddDep} className="flex gap-2">
                 <select className="input flex-1 text-sm" value={depTargetId} onChange={e => setDepTargetId(e.target.value)}>
-                  <option value="">選擇前置任務…</option>
+                  <option value="">選擇後續任務…</option>
                   {allTasks.filter(t => !deps.some(d => d.to_task_id === t.id)).map(t => (
                     <option key={t.id} value={t.id}>{t.title}</option>
                   ))}

@@ -31,7 +31,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.project import Project, ProjectMember, ProjectRole
-from app.models.task import Task, TaskPriority, TaskStatus
+from app.models.task import Task, TaskAssignee, TaskPriority, TaskStatus
 from app.models.template import ProjectTemplate, TemplateTask
 from app.models.user import User
 from app.schemas.project import ProjectOut
@@ -219,6 +219,8 @@ async def apply_template(
         )
         db.add(task)
         await db.flush()  # get task.id before wiring deps
+        # 預設指派給建立者（專案 owner）
+        db.add(TaskAssignee(task_id=task.id, user_id=current_user.id))
         position_to_task[tt.position] = task
 
     # Wire task dependencies from depends_on_position
@@ -261,14 +263,25 @@ async def create_template_from_project(
     await db.flush()
 
     tasks_result = await db.execute(select(Task).where(Task.project_id == project_id).order_by(Task.position))
-    for i, task in enumerate(tasks_result.scalars().all()):
+    task_list = tasks_result.scalars().all()
+    cursor = 0
+    for i, task in enumerate(task_list):
+        # 從 start_date / end_date 計算工期天數，若無日期則預設 1 天
+        if task.start_date and task.end_date:
+            duration = max(1, (task.end_date - task.start_date).days + 1)
+        else:
+            duration = 1
+        day_start = cursor
+        day_end = cursor + duration - 1
+        cursor = day_end + 1
         db.add(
             TemplateTask(
                 template_id=tmpl.id,
                 title=task.title,
                 description=task.description,
                 priority=task.priority.value if task.priority else "medium",
-                day_offset_start=0,
+                day_offset_start=day_start,
+                day_offset_end=day_end,
                 position=i,
             )
         )

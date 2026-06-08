@@ -1,3 +1,49 @@
+## [2026-06-08] 輪結 Round 15 — G5 CI 地端執行（功能修復 + 安全掃描 + TypeScript 清理）
+
+- 現況：**G5✅（CI 地端通過）；下一步 = G6（CD / 使用者手動驗收）**
+- PM：本輪為純 CI gate 驗證，無新需求；覆蓋 6/8 所有功能修正
+- Dev/Sec：
+  - TypeScript error 修正 2 項（WeeklyReportPage 缺失 export、taskStore 無效 WsEvent type 比較）
+  - PyJWT 容器版本 2.12.1（CVE ×4）→ requirements.txt 已鎖 2.13.0，重建後自動升版；CI 工具帶入的舊版不影響應用本身（Medium 風險）
+  - pip CVE ×5 為 CI 工具層，不影響應用執行（Low）
+  - SAST（Semgrep p/owasp-top-ten）：Findings 0；Secret scan：無硬編碼密鑰；Critical/High = 0
+- QA：pytest 11/11 PASS；TS 0 error；Smoke test（migration + startup）通過
+- CI 擋下事件：`--no-cache` 重建後 DB schema 消失 → alembic_version 清空後 `upgrade head` 重跑 001→016 全部成功
+- 過關狀態：G1✅ G2✅ G3✅ G4✅ G5✅
+
+### 教訓 / 準則
+- **`docker compose build --no-cache` 不會重建 named volume**，但若 alembic_version 殘留舊版號、實際表格已不存在，startup 會失敗。遇到 "relation does not exist" 先查 `\dt`，再清 alembic_version 重跑 `upgrade head`。
+- **CI 工具（semgrep/pip-audit）引入的套件 CVE** 與應用程式依賴分開評估；應用層以 requirements.txt 鎖版為準，CI 工具升級不列為阻擋 gate 的 Critical。
+- **TypeScript strict 模式**應在每次 feature PR 後跑一次 `tsc --noEmit`，避免遺留 V3 dead code 的 type error 積累。
+
+---
+
+## [2026-06-07] 輪結 Round 14 — G01 甘特圖依賴線防重疊 + G02 里程碑工時簡化（G3✅）
+
+- 現況：**G1✅ G2✅ G3✅；下一步 = G4（QA 驗收）**
+- PM：G01 採分配通道偏移（5px/條），G02 移除手動工時改唯讀、統計卡改為日常任務加總
+- Dev：GanttTab.tsx（+11 行通道偏移計算）、MilestonesTab.tsx（移除 hours state/儲存按鈕/相關函式）、milestones.py（work_minutes 移出 update schema）、api/milestones.ts（型別同步）
+- Sec：Critical_0 / High_0；無硬編碼密鑰；攻擊面縮小（update 只允許 note）
+- 退回事件：無
+
+### 教訓 / 準則
+
+**教訓 62：移除欄位時前後端型別必須同步**
+- 情境：後端 MilestoneLogUpdate 移除 work_minutes，但前端 api/milestones.ts 仍有 `work_minutes?: number`，TypeScript 不報錯但傳了無用欄位
+- 準則：改後端 schema 時，同步更新前端對應的 API 呼叫型別定義
+- **How to apply：** 每次改後端 Pydantic schema 欄位，grep `api/*.ts` 對應呼叫的型別標註
+
+**教訓 63：多線防重疊用「bucket 分組 + 累計計數」而非排序**
+- 情境：甘特圖依賴線垂直段 x 座標相近才需要錯開，不需要全域排序，只需對同一 bucket 累計偏移
+- 準則：同通道衝突問題，先把座標 bucket 化（round to nearest N），再對同 bucket 計數分配偏移，O(n) 即可
+- **How to apply：** 任何「多條線/元素共用通道需錯開」問題，採此模式
+
+### 過程原始輸出位置
+- 前端修改：GanttTab.tsx（通道偏移計算 + elbow 套入）、MilestonesTab.tsx（移除工時輸入/儲存，備註 onBlur）、api/milestones.ts（型別）
+- 後端修改：milestones.py（MilestoneLogUpdate 移除 work_minutes、update endpoint 同步）
+
+---
+
 ## [2026-06-06] 輪結 Round 13 — V4 7 項 UX 優化（G4 待驗收）
 
 - 現況：**G1✅ G2✅ G3✅；本輪完成 7 項 UX 優化；下一步 = G4（QA 功能驗收）**

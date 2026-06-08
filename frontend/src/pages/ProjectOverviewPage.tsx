@@ -65,9 +65,15 @@ export default function ProjectOverviewPage() {
   useEffect(() => { load() }, [])
 
   const handleArchive = async (id: string, archive: boolean) => {
-    await projectsApi.update(id, { is_archived: archive })
-    toast.success(archive ? '已封存' : '已取消封存')
-    load()
+    try {
+      await projectsApi.update(id, { is_archived: archive })
+      toast.success(archive ? '已封存' : '已取消封存')
+      load()
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail
+      if (msg) toast.error(msg)
+      else toast.error(archive ? '封存失敗，請重試' : '取消封存失敗，請重試')
+    }
   }
 
   const handleDelete = async (id: string, name: string) => {
@@ -170,11 +176,13 @@ export default function ProjectOverviewPage() {
                     <DaysLeft endDate={item.end_date} />
                   </div>
                   <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 flex-shrink-0 w-20 justify-end">
-                    <button
-                      onClick={() => handleArchive(item.id, true)}
-                      className="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-600 hover:bg-amber-100"
-                    >封存</button>
-                    {isAdmin && (
+                    {(isAdmin || ['owner', 'manager'].includes(item.my_role ?? '')) && (
+                      <button
+                        onClick={() => handleArchive(item.id, true)}
+                        className="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-600 hover:bg-amber-100"
+                      >封存</button>
+                    )}
+                    {(isAdmin || item.my_role === 'owner') && (
                       <button
                         onClick={() => handleDelete(item.id, item.name)}
                         className="text-xs px-2 py-0.5 rounded bg-red-50 text-red-500 hover:bg-red-100"
@@ -215,11 +223,13 @@ export default function ProjectOverviewPage() {
                         <DaysLeft endDate={item.end_date} />
                       </div>
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 flex-shrink-0 w-20 justify-end">
-                        <button
-                          onClick={() => handleArchive(item.id, false)}
-                          className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200"
-                        >取消封存</button>
-                        {isAdmin && (
+                        {(isAdmin || ['owner', 'manager'].includes(item.my_role ?? '')) && (
+                          <button
+                            onClick={() => handleArchive(item.id, false)}
+                            className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          >取消封存</button>
+                        )}
+                        {(isAdmin || item.my_role === 'owner') && (
                           <button
                             onClick={() => handleDelete(item.id, item.name)}
                             className="text-xs px-2 py-0.5 rounded bg-red-50 text-red-500 hover:bg-red-100"

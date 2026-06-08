@@ -22,6 +22,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     display_name: str | None = Field(None, min_length=1, max_length=100)
     avatar_url: str | None = None
+    auto_archive_days: int | None = Field(None, ge=0, le=3650)
 
 
 class UserOut(BaseModel):
@@ -31,6 +32,7 @@ class UserOut(BaseModel):
     role: UserRole
     is_active: bool
     avatar_url: str | None
+    auto_archive_days: int
     created_at: datetime
 
     model_config = {"from_attributes": True}

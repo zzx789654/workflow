@@ -12,6 +12,7 @@ import TaskDetailPanel from '../components/project/TaskDetailPanel'
 import TaskListView from '../components/project/TaskListView'
 import CreateTaskModal from '../components/project/CreateTaskModal'
 import MilestonesTab from '../components/project/MilestonesTab'
+import FilesTab from '../components/project/FilesTab'
 import MembersTab from '../components/project/MembersTab'
 import GanttTab from '../components/project/GanttTab'
 import ProjectSettingsTab from '../components/project/ProjectSettingsTab'
@@ -92,6 +93,7 @@ export default function ProjectPage() {
         <NavLink to="" end className={navClass}>看板</NavLink>
         <NavLink to="gantt" className={navClass}>甘特圖</NavLink>
         <NavLink to="milestones" className={navClass}>里程碑</NavLink>
+        <NavLink to="files" className={navClass}>檔案</NavLink>
         <NavLink to="members" className={navClass}>成員</NavLink>
         <NavLink to="settings" className={navClass}>設定</NavLink>
       </nav>
@@ -143,6 +145,7 @@ export default function ProjectPage() {
         />
         <Route path="/gantt" element={<GanttTab projectId={projectId} />} />
         <Route path="/milestones" element={<MilestonesTab projectId={projectId} />} />
+        <Route path="/files" element={<FilesTab projectId={projectId} />} />
         <Route path="/members" element={<MembersTab projectId={projectId} />} />
         <Route path="/settings" element={<ProjectSettingsTab projectId={projectId} project={project} onProjectUpdate={setProject} />} />
       </Routes>

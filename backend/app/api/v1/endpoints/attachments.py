@@ -32,6 +32,7 @@ ALLOWED_TYPES = {
 }
 
 router = APIRouter(prefix="/projects/{project_id}/tasks/{task_id}/attachments", tags=["attachments"])
+project_files_router = APIRouter(prefix="/projects/{project_id}/files", tags=["attachments"])
 
 
 async def _check_member(project_id: uuid.UUID, user: User, db: AsyncSession):
@@ -54,6 +55,20 @@ class AttachmentOut(BaseModel):
     filename: str
     content_type: str
     file_size: int
+
+    model_config = {"from_attributes": True}
+
+
+class ProjectFileOut(BaseModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    task_title: str
+    user_id: uuid.UUID
+    uploader_name: str
+    filename: str
+    content_type: str
+    file_size: int
+    created_at: str
 
     model_config = {"from_attributes": True}
 
@@ -155,3 +170,43 @@ async def delete_attachment(
     if task_obj and task_obj.attachment_count > 0:
         task_obj.attachment_count -= 1
     await db.commit()
+
+
+# ── 專案層級：列出所有檔案 ─────────────────────────────────────
+@project_files_router.get("/", response_model=list[ProjectFileOut])
+async def list_project_files(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from sqlalchemy.orm import selectinload
+    from app.models.user import User as UserModel
+
+    await _check_member(project_id, current_user, db)
+
+    # 聯查 TaskAttachment + Task + User(uploader)
+    res = await db.execute(
+        select(TaskAttachment)
+        .join(Task, TaskAttachment.task_id == Task.id)
+        .join(UserModel, TaskAttachment.user_id == UserModel.id)
+        .where(Task.project_id == project_id)
+        .order_by(TaskAttachment.created_at.desc())
+    )
+    attachments = res.scalars().all()
+
+    out = []
+    for att in attachments:
+        task_obj = await db.get(Task, att.task_id)
+        uploader = await db.get(UserModel, att.user_id)
+        out.append(ProjectFileOut(
+            id=att.id,
+            task_id=att.task_id,
+            task_title=task_obj.title if task_obj else "(已刪除)",
+            user_id=att.user_id,
+            uploader_name=uploader.display_name if uploader else "(未知)",
+            filename=att.filename,
+            content_type=att.content_type,
+            file_size=att.file_size,
+            created_at=att.created_at.isoformat(),
+        ))
+    return out

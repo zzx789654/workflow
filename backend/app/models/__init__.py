@@ -1,4 +1,4 @@
-from app.models.daily_task import DailyTask, DailyTaskLabel
+from app.models.daily_task import DailyTask, DailyTaskArchive, DailyTaskLabel
 from app.models.milestone import Milestone
 from app.models.project import Project, ProjectMember
 from app.models.system_setting import SystemSetting
@@ -23,6 +23,7 @@ __all__ = [
     "TaskAssignee",
     "TaskComment",
     "DailyTask",
+    "DailyTaskArchive",
     "DailyTaskLabel",
     "ProjectTemplate",
     "TemplateTask",

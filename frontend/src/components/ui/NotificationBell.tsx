@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { notificationsApi } from '../../api/notifications'
+import { useNotificationStore } from '../../stores/notificationStore'
 import type { Notification } from '../../types'
 
 export default function NotificationBell() {
@@ -7,6 +9,9 @@ export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [open, setOpen] = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
+  const refreshTick = useNotificationStore((s) => s.refreshTick)
 
   const load = async () => {
     try {
@@ -16,15 +21,29 @@ export default function NotificationBell() {
     } catch { /* ignore */ }
   }
 
+  // 初始載入 + 30 秒輪詢
   useEffect(() => {
     load()
     timerRef.current = setInterval(load, 30_000)
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [])
 
-  const handleOpen = () => {
-    setOpen((v) => !v)
-  }
+  // WS 通知事件觸發即時刷新
+  useEffect(() => {
+    if (refreshTick > 0) load()
+  }, [refreshTick])
+
+  // 點擊外部關閉
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
 
   const handleMarkAll = async () => {
     await notificationsApi.markAllRead()
@@ -32,17 +51,29 @@ export default function NotificationBell() {
     setNotifications((ns) => ns.map((n) => ({ ...n, read_at: new Date().toISOString() })))
   }
 
-  const handleMarkOne = async (id: string) => {
-    await notificationsApi.markRead(id)
-    setNotifications((ns) => ns.map((n) => n.id === id ? { ...n, read_at: new Date().toISOString() } : n))
-    setUnread((u) => Math.max(u - 1, 0))
+  const handleClick = async (n: Notification) => {
+    if (!n.read_at) {
+      await notificationsApi.markRead(n.id)
+      setNotifications((ns) => ns.map((x) => x.id === n.id ? { ...x, read_at: new Date().toISOString() } : x))
+      setUnread((u) => Math.max(u - 1, 0))
+    }
+    setOpen(false)
+    if (n.ref_type === 'task' && n.project_id) {
+      navigate(`/projects/${n.project_id}`)
+    }
+  }
+
+  const typeIcon = (type: string) => {
+    if (type === 'task_progress') return '📋'
+    if (type === 'mention') return '💬'
+    return '🔔'
   }
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <button
         className="relative p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500"
-        onClick={handleOpen}
+        onClick={() => setOpen((v) => !v)}
         aria-label="通知"
       >
         🔔
@@ -54,10 +85,7 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div
-          className="absolute right-0 top-full mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-50"
-          onBlur={() => setOpen(false)}
-        >
+        <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-50">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
             <span className="text-sm font-semibold text-gray-700">通知</span>
             {unread > 0 && (
@@ -72,11 +100,17 @@ export default function NotificationBell() {
             ) : notifications.map((n) => (
               <li
                 key={n.id}
-                className={`px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors ${!n.read_at ? 'bg-blue-50/50' : ''}`}
-                onClick={() => !n.read_at && handleMarkOne(n.id)}
+                className={`px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors flex gap-2.5 items-start ${!n.read_at ? 'bg-blue-50/50' : ''}`}
+                onClick={() => handleClick(n)}
               >
-                <p className="text-sm text-gray-700">{n.message}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{new Date(n.created_at).toLocaleString('zh-TW')}</p>
+                <span className="text-base flex-shrink-0 mt-0.5">{typeIcon(n.type)}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-gray-700 leading-snug">{n.message}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{new Date(n.created_at).toLocaleString('zh-TW')}</p>
+                </div>
+                {!n.read_at && (
+                  <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 mt-1.5" />
+                )}
               </li>
             ))}
           </ul>

@@ -26,6 +26,15 @@ async def _check_member(project_id: uuid.UUID, user: User, db: AsyncSession):
 
 
 # ── Output schema ──────────────────────────────────────────────
+class DailyTaskInfo(BaseModel):
+    id: uuid.UUID
+    title: str
+    date: str          # ISO date string
+    work_minutes: int
+
+    model_config = {"from_attributes": True}
+
+
 class MilestoneLogOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
@@ -34,7 +43,8 @@ class MilestoneLogOut(BaseModel):
     completed_by: uuid.UUID | None
     completed_by_name: str | None
     work_minutes: int
-    daily_task_minutes: int = 0  # 關聯日常任務的時數加總
+    daily_task_minutes: int = 0
+    daily_tasks: list[DailyTaskInfo] = []  # 關聯日常任務清單，依 date 排序
     note: str | None
     completed_at: datetime
 
@@ -42,7 +52,7 @@ class MilestoneLogOut(BaseModel):
 
 
 class MilestoneLogUpdate(BaseModel):
-    work_minutes: int | None = Field(None, ge=0)
+    # work_minutes 已改為唯讀（由日常任務加總計算），傳入值會被忽略
     note: str | None = Field(None, max_length=1000)
 
 
@@ -53,7 +63,6 @@ async def list_milestone_logs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    from sqlalchemy import func
     from app.models.daily_task import DailyTask
 
     await _check_member(project_id, current_user, db)
@@ -62,22 +71,29 @@ async def list_milestone_logs(
     )
     logs = logs_result.scalars().all()
 
-    # 一次查詢所有相關 task_id 的日常任務時數加總
     task_ids = [l.task_id for l in logs if l.task_id is not None]
+
+    # 一次查詢所有關聯日常任務（依 date 升冪，方便前端直接顯示）
+    daily_tasks_map: dict[uuid.UUID, list[DailyTaskInfo]] = {}
     daily_minutes_map: dict[uuid.UUID, int] = {}
     if task_ids:
-        rows = await db.execute(
-            select(DailyTask.linked_task_id, func.sum(DailyTask.work_minutes))
+        dt_rows = await db.execute(
+            select(DailyTask.id, DailyTask.title, DailyTask.date, DailyTask.work_minutes, DailyTask.linked_task_id)
             .where(DailyTask.linked_task_id.in_(task_ids))
-            .group_by(DailyTask.linked_task_id)
+            .order_by(DailyTask.date.asc())
         )
-        for task_id, total in rows.all():
-            daily_minutes_map[task_id] = int(total or 0)
+        for row in dt_rows.all():
+            dt_id, title, dt_date, minutes, linked_id = row
+            info = DailyTaskInfo(id=dt_id, title=title, date=str(dt_date), work_minutes=minutes)
+            daily_tasks_map.setdefault(linked_id, []).append(info)
+            daily_minutes_map[linked_id] = daily_minutes_map.get(linked_id, 0) + minutes
 
     out = []
     for log in logs:
         d = {c.key: getattr(log, c.key) for c in log.__table__.columns}
-        d["daily_task_minutes"] = daily_minutes_map.get(log.task_id, 0) if log.task_id else 0
+        tid = log.task_id
+        d["daily_task_minutes"] = daily_minutes_map.get(tid, 0) if tid else 0
+        d["daily_tasks"] = daily_tasks_map.get(tid, []) if tid else []
         out.append(MilestoneLogOut(**d))
     return out
 
@@ -95,8 +111,6 @@ async def update_milestone_log(
     log = await db.get(MilestoneLog, log_id)
     if not log or str(log.project_id) != str(project_id):
         raise HTTPException(status_code=404, detail="Record not found")
-    if body.work_minutes is not None:
-        log.work_minutes = body.work_minutes
     if body.note is not None:
         log.note = body.note
     await db.commit()

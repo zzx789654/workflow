@@ -497,7 +497,9 @@ export default function DailyTaskPage() {
     setLoading(true)
     setRenderLimit(PAGE_SIZE)
     try {
-      const res = await dailyTasksApi.list({ pending_only: true, label: filterLabel || undefined })
+      const res = await dailyTasksApi.list({
+        label: filterLabel || undefined,
+      })
       setAllTasks(res.data)
     } finally { setLoading(false) }
   }, [filterLabel])
@@ -662,7 +664,7 @@ export default function DailyTaskPage() {
         <div className="text-center py-12 text-gray-400">載入中…</div>
       ) : filteredTasks.length === 0 ? (
         <div className="text-center py-8 text-gray-400">
-          {hasFilter ? '目前篩選條件無符合作業' : '目前無未完成作業，在上方輸入標題後按新增'}
+          {hasFilter ? '目前篩選條件無符合作業' : '目前沒有任何作業，在上方輸入標題後按新增'}
         </div>
       ) : (
         <>

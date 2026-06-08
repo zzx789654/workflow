@@ -12,6 +12,7 @@ import TemplatesPage from './pages/TemplatesPage'
 import CalendarPage from './pages/CalendarPage'
 import SettingsPage from './pages/SettingsPage'
 import ArchivedProjectsPage from './pages/ArchivedProjectsPage'
+import HistoryPage from './pages/HistoryPage'
 import Layout from './components/ui/Layout'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -49,6 +50,7 @@ export default function App() {
                 <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/archived" element={<ArchivedProjectsPage />} />
+                <Route path="/history" element={<HistoryPage />} />
               </Routes>
             </Layout>
           </RequireAuth>

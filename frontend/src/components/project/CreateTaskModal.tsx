@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTaskStore } from '../../stores/taskStore'
 import { projectsApi } from '../../api/projects'
-import type { TaskStatus, TaskPriority, User } from '../../types'
+import type { TaskStatus, TaskPriority, User, ProjectMember } from '../../types'
 
 interface Props {
   projectId: string
@@ -22,9 +22,15 @@ export default function CreateTaskModal({ projectId, onClose }: Props) {
   const createTask = useTaskStore((s) => s.createTask)
 
   useEffect(() => {
-    projectsApi.listMembers(projectId).then(r =>
-      setMembers(r.data.map((m: { user: User }) => m.user))
-    )
+    projectsApi.listMembers(projectId).then(r => {
+      const memberList: ProjectMember[] = r.data
+      setMembers(memberList.map((m) => m.user))
+      // 預設指派給專案管理者（manager / owner）
+      const managers = memberList
+        .filter((m) => m.role === 'manager' || m.role === 'owner')
+        .map((m) => m.user.id)
+      if (managers.length > 0) setAssigneeIds(managers)
+    })
   }, [projectId])
 
   const toggleAssignee = (id: string) =>

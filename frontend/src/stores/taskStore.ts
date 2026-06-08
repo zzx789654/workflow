@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { Task, TaskStatus, WsEvent } from '../types'
 import { tasksApi } from '../api/tasks'
 
+
 interface TaskState {
   tasks: Task[]
   loading: boolean
@@ -57,7 +58,6 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     } else if (event.type === 'task_deleted') {
       set({ tasks: tasks.filter((t) => t.id !== event.task_id) })
     } else if (event.type === 'task_created' || event.type === 'task_updated' || event.type === 'comment_added') {
-      // Re-fetch for simplicity; could be optimized with targeted updates
       tasksApi.list(projectId).then((res) => set({ tasks: res.data }))
     }
   },

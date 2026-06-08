@@ -1,12 +1,14 @@
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_project_membership
 from app.db.session import get_db
+from app.models.daily_task import DailyTask, DailyTaskArchive
 from app.models.project import Project, ProjectMember, ProjectRole
 from app.models.task import Task
 from app.models.user import User
@@ -93,16 +95,18 @@ async def get_overview(
     current_user: User = Depends(get_current_user),
 ):
     uid = current_user.id
+    is_admin = current_user.role.value == "admin"
 
-    if current_user.role.value == "admin":
-        visible_result = await db.execute(select(Project.id))
+    # admin 可看所有專案；一般使用者只看自己是成員的專案
+    membership_result = await db.execute(
+        select(ProjectMember).where(ProjectMember.user_id == uid)
+    )
+    memberships = {m.project_id: m.role.value for m in membership_result.scalars().all()}
+
+    if is_admin:
+        all_result = await db.execute(select(Project))
     else:
-        visible_result = await db.execute(
-            select(ProjectMember.project_id).where(ProjectMember.user_id == uid)
-        )
-    visible_ids = {r[0] for r in visible_result.all()}
-
-    all_result = await db.execute(select(Project).where(Project.id.in_(visible_ids)))
+        all_result = await db.execute(select(Project).where(Project.id.in_(set(memberships.keys()))))
     all_projects = all_result.scalars().all()
 
     result_items: list[ProjectOverviewItem] = []
@@ -116,6 +120,7 @@ async def get_overview(
             member_count=mc_r.scalar() or 0,
             task_total=total_r.scalar() or 0,
             task_done=done_r.scalar() or 0,
+            my_role=memberships.get(p.id),
         ))
 
     result_items.sort(key=lambda x: (x.is_archived, x.name))
@@ -142,6 +147,64 @@ async def update_project(
     await require_project_membership(project_id, current_user, db, ProjectRole.manager)
     project = await get_project_or_404(project_id, db)
     update_data = body.model_dump(exclude_none=True)
+
+    # 封存專案前的擋關與同步搬移
+    if update_data.get("is_archived") is True and not project.is_archived:
+        # 取得專案下所有任務 ID
+        task_ids_result = await db.execute(
+            select(Task.id).where(Task.project_id == project_id)
+        )
+        task_ids = [r[0] for r in task_ids_result.all()]
+
+        if task_ids:
+            # 檢查是否有未完成的關聯日常任務
+            blocking_result = await db.execute(
+                select(func.count()).where(
+                    and_(
+                        DailyTask.linked_task_id.in_(task_ids),
+                        DailyTask.status.notin_(["done", "cancelled"]),
+                    )
+                )
+            )
+            blocking_count = blocking_result.scalar() or 0
+            if blocking_count > 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"有 {blocking_count} 筆關聯日常任務尚未完成，請先完成後再封存專案。",
+                )
+
+            # 同步搬移所有關聯日常任務到封存表
+            linked_result = await db.execute(
+                select(DailyTask).where(DailyTask.linked_task_id.in_(task_ids))
+            )
+            linked_tasks = linked_result.scalars().all()
+            if linked_tasks:
+                archived_at = datetime.now(UTC)
+                ids_to_move = []
+                for dt in linked_tasks:
+                    db.add(DailyTaskArchive(
+                        id=dt.id,
+                        user_id=dt.user_id,
+                        title=dt.title,
+                        description=dt.description,
+                        status=dt.status.value if hasattr(dt.status, "value") else dt.status,
+                        progress=dt.progress,
+                        date=dt.date,
+                        started_at=dt.started_at,
+                        ended_at=dt.ended_at,
+                        notify_at=dt.notify_at,
+                        work_minutes=dt.work_minutes,
+                        linked_task_id=dt.linked_task_id,
+                        created_at=dt.created_at,
+                        updated_at=dt.updated_at,
+                        archived_at=archived_at,
+                    ))
+                    ids_to_move.append(dt.id)
+                await db.flush()
+                await db.execute(
+                    delete(DailyTask).where(DailyTask.id.in_(ids_to_move))
+                )
+
     for field, value in update_data.items():
         setattr(project, field, value)
     # When end_date is updated, propagate to all tasks in the project

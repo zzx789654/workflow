@@ -1,6 +1,7 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
 import { useThemeStore } from '../../stores/themeStore'
+import { useNotificationWs } from '../../hooks/useNotificationWs'
 import SearchBar from './SearchBar'
 import NotificationBell from './NotificationBell'
 
@@ -10,7 +11,8 @@ const navItems = [
   { to: '/daily', label: '日常作業', icon: '📋', end: false },
   { to: '/templates', label: '專案範本', icon: '📄', end: false },
   { to: '/calendar', label: '月曆', icon: '📅', end: false },
-  { to: '/archived', label: '封存專案', icon: '🗄️', end: false },
+  { to: '/archived', label: '任務整理', icon: '📦', end: false },
+  { to: '/history', label: '歷史記錄', icon: '🗄️', end: false },
 ]
 
 const bottomNavItems = [
@@ -26,6 +28,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const logout = useAuthStore((s) => s.logout)
   const navigate = useNavigate()
   const { dark, toggle: toggleDark } = useThemeStore()
+  useNotificationWs()
 
   const handleLogout = () => {
     logout()

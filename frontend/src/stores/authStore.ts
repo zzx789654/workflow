@@ -13,7 +13,8 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
-  loading: false,
+  // 若 localStorage 有 token，初始設為 true 避免 RequireAuth 在 fetchMe 完成前就跳轉 /login
+  loading: !!localStorage.getItem('access_token'),
 
   login: async (email, password) => {
     const res = await authApi.login(email, password)
