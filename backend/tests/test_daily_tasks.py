@@ -101,8 +101,6 @@ async def test_daily_task_list_with_label(client: AsyncClient, admin_token: str)
         json={"title": "Labelled task", "date": "2026-06-10", "labels": ["work"]},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
-    resp = await client.get(
-        "/api/v1/daily-tasks/?label=work", headers={"Authorization": f"Bearer {admin_token}"}
-    )
+    resp = await client.get("/api/v1/daily-tasks/?label=work", headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
     assert any(t["title"] == "Labelled task" for t in resp.json())

@@ -37,8 +37,6 @@ async def test_search_daily_task_by_title(client: AsyncClient, admin_token: str)
         json={"title": "UniqueSearchDaily", "date": "2026-06-10", "labels": []},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
-    resp = await client.get(
-        "/api/v1/search/?q=UniqueSearchDaily", headers={"Authorization": f"Bearer {admin_token}"}
-    )
+    resp = await client.get("/api/v1/search/?q=UniqueSearchDaily", headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
     assert any("UniqueSearchDaily" in d["title"] for d in resp.json()["daily_tasks"])
