@@ -159,6 +159,11 @@ async def update_daily_task(
         await db.flush()
         for lbl in body.labels:
             db.add(DailyTaskLabel(daily_task_id=task.id, label=lbl.strip()))
+    # expire_on_commit=False 下，session 仍快取舊的 labels 關聯；只針對這個 task
+    # 的 labels 關聯過期（避免 expire_all 連帶清掉 current_user 造成 lazy-load 失敗），
+    # 讓後續 _load 的 selectinload 重新從 DB 撈最新 labels。
+    if body.labels is not None:
+        db.expire(task, ["labels"])
     await db.commit()
     loaded = await _load(task_id, current_user, db)
     return _to_out(loaded)

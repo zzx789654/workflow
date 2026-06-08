@@ -73,7 +73,8 @@ async def apply_project_deadline_to_tasks(
     await require_project_membership(project_id, current_user, db, ProjectRole.manager)
     project = await get_project_or_404(project_id, db)
     if project.end_date:
-        await db.execute(update(Task).where(Task.project_id == project_id).values(due_date=str(project.end_date)))
+        # due_date is a Date column — pass the date object, not str().
+        await db.execute(update(Task).where(Task.project_id == project_id).values(due_date=project.end_date))
         await db.commit()
 
 
@@ -215,11 +216,10 @@ async def update_project(
 
     for field, value in update_data.items():
         setattr(project, field, value)
-    # When end_date is updated, propagate to all tasks in the project
+    # When end_date is updated, propagate to all tasks in the project.
+    # due_date is a Date column — pass the date object, not str(), or asyncpg raises DataError.
     if "end_date" in update_data and update_data["end_date"]:
-        await db.execute(
-            update(Task).where(Task.project_id == project_id).values(due_date=str(update_data["end_date"]))
-        )
+        await db.execute(update(Task).where(Task.project_id == project_id).values(due_date=update_data["end_date"]))
     await db.commit()
     await db.refresh(project)
     count_result = await db.execute(select(func.count()).where(ProjectMember.project_id == project_id))
