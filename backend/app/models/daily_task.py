@@ -11,7 +11,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.session import Base
 
 _archive_status_enum = PGENUM(
-    "pending", "in_progress", "done", "cancelled",
+    "pending",
+    "in_progress",
+    "done",
+    "cancelled",
     name="dailytaskstatus",
     create_type=False,
 )
@@ -19,6 +22,7 @@ _archive_status_enum = PGENUM(
 
 class DailyTaskArchive(Base):
     """已封存的日常任務——資料從 daily_tasks 搬移過來，不再出現在一般列表。"""
+
     __tablename__ = "daily_tasks_archive"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
@@ -63,9 +67,7 @@ class DailyTask(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     notify_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     work_minutes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    linked_task_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
-    )
+    linked_task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

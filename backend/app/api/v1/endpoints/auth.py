@@ -24,6 +24,7 @@ async def register(request: Request, body: UserCreate, db: AsyncSession = Depend
     # Check allow_registration system setting
     try:
         from app.models.system_setting import SystemSetting
+
         r = await db.execute(select(SystemSetting).where(SystemSetting.key == "allow_registration"))
         row = r.scalar_one_or_none()
         allow = (row.value if row else None) or "true"

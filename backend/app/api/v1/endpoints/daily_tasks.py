@@ -74,12 +74,9 @@ async def list_daily_tasks(
 ):
     is_admin = current_user.role == UserRole.admin
 
-    q = (
-        select(DailyTask)
-        .options(
-            selectinload(DailyTask.labels),
-            selectinload(DailyTask.linked_task).selectinload(Task.project),
-        )
+    q = select(DailyTask).options(
+        selectinload(DailyTask.labels),
+        selectinload(DailyTask.linked_task).selectinload(Task.project),
     )
     if is_admin and target_user_id:
         q = q.where(DailyTask.user_id == target_user_id)
@@ -92,7 +89,10 @@ async def list_daily_tasks(
         q = q.where(
             or_(
                 DailyTask.status.in_([DailyTaskStatus.pending, DailyTaskStatus.in_progress]),
-                and_(DailyTask.date == today, DailyTask.status.notin_([DailyTaskStatus.pending, DailyTaskStatus.in_progress]))
+                and_(
+                    DailyTask.date == today,
+                    DailyTask.status.notin_([DailyTaskStatus.pending, DailyTaskStatus.in_progress]),
+                ),
             )
         )
     if label:
@@ -276,9 +276,7 @@ async def archive_daily_tasks(
 
     # Flush archive inserts first, then delete originals
     await db.flush()
-    await db.execute(
-        delete(DailyTask).where(DailyTask.id.in_(ids_to_delete))
-    )
+    await db.execute(delete(DailyTask).where(DailyTask.id.in_(ids_to_delete)))
     await db.commit()
     return {"archived": len(ids_to_delete)}
 
@@ -304,6 +302,7 @@ async def list_daily_tasks_by_project_task(
 
 
 # ─── 歷史日常任務查詢 ──────────────────────────────────────────────
+
 
 class ArchiveHistoryItem(BaseModel):
     id: uuid.UUID
@@ -358,17 +357,12 @@ async def get_archive_history(
     task_ids = {r.linked_task_id for r in rows if r.linked_task_id}
     task_map: dict[uuid.UUID, tuple[str, uuid.UUID | None, str]] = {}
     if task_ids:
-        tasks_result = await db.execute(
-            select(Task.id, Task.title, Task.project_id)
-            .where(Task.id.in_(task_ids))
-        )
+        tasks_result = await db.execute(select(Task.id, Task.title, Task.project_id).where(Task.id.in_(task_ids)))
         task_rows = tasks_result.all()
         project_ids = {t.project_id for t in task_rows if t.project_id}
         project_map: dict[uuid.UUID, str] = {}
         if project_ids:
-            proj_result = await db.execute(
-                select(Project.id, Project.name).where(Project.id.in_(project_ids))
-            )
+            proj_result = await db.execute(select(Project.id, Project.name).where(Project.id.in_(project_ids)))
             project_map = {p.id: p.name for p in proj_result.all()}
         for t in task_rows:
             task_map[t.id] = (t.title, t.project_id, project_map.get(t.project_id, ""))
@@ -376,20 +370,22 @@ async def get_archive_history(
     items = []
     for r in rows:
         t_info = task_map.get(r.linked_task_id) if r.linked_task_id else None
-        items.append(ArchiveHistoryItem(
-            id=r.id,
-            title=r.title,
-            description=r.description,
-            status=r.status if isinstance(r.status, str) else r.status.value,
-            progress=r.progress,
-            date=r.date,
-            work_minutes=r.work_minutes,
-            linked_task_id=r.linked_task_id,
-            linked_task_title=t_info[0] if t_info else None,
-            linked_project_id=t_info[1] if t_info else None,
-            linked_project_name=t_info[2] if t_info else None,
-            archived_at=r.archived_at,
-        ))
+        items.append(
+            ArchiveHistoryItem(
+                id=r.id,
+                title=r.title,
+                description=r.description,
+                status=r.status if isinstance(r.status, str) else r.status.value,
+                progress=r.progress,
+                date=r.date,
+                work_minutes=r.work_minutes,
+                linked_task_id=r.linked_task_id,
+                linked_task_title=t_info[0] if t_info else None,
+                linked_project_id=t_info[1] if t_info else None,
+                linked_project_name=t_info[2] if t_info else None,
+                archived_at=r.archived_at,
+            )
+        )
 
     total_work_minutes = sum(r.work_minutes for r in rows)
     stats = ArchiveHistoryStats(
@@ -420,24 +416,36 @@ async def export_archive_history_csv(
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
-        "日期", "標題", "描述", "狀態", "進度(%)", "工時(分鐘)", "工時(小時)",
-        "關聯任務", "所屬專案", "封存時間",
-    ])
+    writer.writerow(
+        [
+            "日期",
+            "標題",
+            "描述",
+            "狀態",
+            "進度(%)",
+            "工時(分鐘)",
+            "工時(小時)",
+            "關聯任務",
+            "所屬專案",
+            "封存時間",
+        ]
+    )
     STATUS_ZH = {"pending": "待辦", "in_progress": "進行中", "done": "完成", "cancelled": "已取消"}
     for item in resp.items:
-        writer.writerow([
-            str(item.date),
-            item.title,
-            item.description or "",
-            STATUS_ZH.get(item.status, item.status),
-            item.progress,
-            item.work_minutes,
-            round(item.work_minutes / 60, 2),
-            item.linked_task_title or "",
-            item.linked_project_name or "",
-            item.archived_at.strftime("%Y-%m-%d %H:%M"),
-        ])
+        writer.writerow(
+            [
+                str(item.date),
+                item.title,
+                item.description or "",
+                STATUS_ZH.get(item.status, item.status),
+                item.progress,
+                item.work_minutes,
+                round(item.work_minutes / 60, 2),
+                item.linked_task_title or "",
+                item.linked_project_name or "",
+                item.archived_at.strftime("%Y-%m-%d %H:%M"),
+            ]
+        )
 
     output.seek(0)
     filename = f"daily_tasks_history_{date.today()}.csv"
@@ -450,6 +458,7 @@ async def export_archive_history_csv(
 
 # ─── 自動排程輔助（供 lifespan 呼叫）─────────────────────────────
 
+
 async def run_auto_archive(db_factory) -> int:
     """自動將符合使用者設定天數的已完成日常任務搬移至封存表。
     回傳封存總筆數。
@@ -459,9 +468,7 @@ async def run_auto_archive(db_factory) -> int:
 
     async with db_factory() as db:
         # 取得所有有設定 auto_archive_days > 0 的使用者
-        users_result = await db.execute(
-            select(User).where(User.auto_archive_days > 0, User.is_active == True)
-        )
+        users_result = await db.execute(select(User).where(User.auto_archive_days > 0, User.is_active == True))
         users = users_result.scalars().all()
 
         for user in users:
@@ -495,23 +502,25 @@ async def run_auto_archive(db_factory) -> int:
             archived_at = datetime.now(UTC)
             ids_to_delete = []
             for dt in rows:
-                db.add(DailyTaskArchive(
-                    id=dt.id,
-                    user_id=dt.user_id,
-                    title=dt.title,
-                    description=dt.description,
-                    status=dt.status.value if hasattr(dt.status, "value") else dt.status,
-                    progress=dt.progress,
-                    date=dt.date,
-                    started_at=dt.started_at,
-                    ended_at=dt.ended_at,
-                    notify_at=dt.notify_at,
-                    work_minutes=dt.work_minutes,
-                    linked_task_id=dt.linked_task_id,
-                    created_at=dt.created_at,
-                    updated_at=dt.updated_at,
-                    archived_at=archived_at,
-                ))
+                db.add(
+                    DailyTaskArchive(
+                        id=dt.id,
+                        user_id=dt.user_id,
+                        title=dt.title,
+                        description=dt.description,
+                        status=dt.status.value if hasattr(dt.status, "value") else dt.status,
+                        progress=dt.progress,
+                        date=dt.date,
+                        started_at=dt.started_at,
+                        ended_at=dt.ended_at,
+                        notify_at=dt.notify_at,
+                        work_minutes=dt.work_minutes,
+                        linked_task_id=dt.linked_task_id,
+                        created_at=dt.created_at,
+                        updated_at=dt.updated_at,
+                        archived_at=archived_at,
+                    )
+                )
                 ids_to_delete.append(dt.id)
 
             await db.flush()

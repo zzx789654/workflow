@@ -32,10 +32,14 @@ async def _notify_task_progress(
     parts = []
     if old_status and new_status and old_status != new_status:
         status_label = {
-            "todo": "待處理", "in_progress": "進行中",
-            "review": "審核中", "done": "已完成",
+            "todo": "待處理",
+            "in_progress": "進行中",
+            "review": "審核中",
+            "done": "已完成",
         }
-        parts.append(f"狀態從「{status_label.get(old_status, old_status)}」更新為「{status_label.get(new_status, new_status)}」")
+        parts.append(
+            f"狀態從「{status_label.get(old_status, old_status)}」更新為「{status_label.get(new_status, new_status)}」"
+        )
     if old_progress is not None and new_progress is not None and old_progress != new_progress:
         parts.append(f"進度從 {old_progress}% 更新為 {new_progress}%")
     if not parts:
@@ -133,9 +137,7 @@ async def list_notifications(
     task_ref_ids = [n.ref_id for n in notifs if n.ref_type == "task" and n.ref_id]
     project_id_map: dict[str, str] = {}
     if task_ref_ids:
-        task_rows = await db.execute(
-            select(Task.id, Task.project_id).where(Task.id.in_(task_ref_ids))
-        )
+        task_rows = await db.execute(select(Task.id, Task.project_id).where(Task.id.in_(task_ref_ids)))
         for tid, pid in task_rows.all():
             project_id_map[str(tid)] = str(pid)
 

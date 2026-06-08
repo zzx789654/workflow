@@ -56,5 +56,5 @@ class ProjectTemplateOut(BaseModel):
 class ApplyTemplateRequest(BaseModel):
     project_name: str = Field(..., min_length=1, max_length=200)
     project_description: str | None = None
-    start_date: str | None = None   # ISO date string, used as day-offset base
-    end_date: str | None = None     # project deadline (sets project.end_date)
+    start_date: str | None = None  # ISO date string, used as day-offset base
+    end_date: str | None = None  # project deadline (sets project.end_date)

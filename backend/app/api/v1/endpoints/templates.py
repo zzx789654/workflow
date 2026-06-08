@@ -43,6 +43,7 @@ def _add_working_days(start: date, working_days: int) -> date:
             remaining -= 1
     return d
 
+
 router = APIRouter(prefix="/project-templates", tags=["project-templates"])
 
 
@@ -197,11 +198,7 @@ async def apply_template(
     cursor = base
     position_to_task: dict[int, Task] = {}
     for tt in sorted_tasks:
-        duration = (
-            (tt.day_offset_end - tt.day_offset_start + 1)
-            if tt.day_offset_end is not None
-            else 1
-        )
+        duration = (tt.day_offset_end - tt.day_offset_start + 1) if tt.day_offset_end is not None else 1
         task_start = cursor
         task_end = _add_working_days(cursor, duration)
         cursor = task_end + timedelta(days=1)
@@ -225,16 +222,19 @@ async def apply_template(
 
     # Wire task dependencies from depends_on_position
     from app.models.v3_models import TaskDependency
+
     for tt in sorted_tasks:
         if tt.depends_on_position is not None:
             from_task = position_to_task.get(tt.depends_on_position)
             to_task = position_to_task.get(tt.position)
             if from_task and to_task and from_task.id != to_task.id:
-                db.add(TaskDependency(
-                    from_task_id=from_task.id,
-                    to_task_id=to_task.id,
-                    dep_type="finish_to_start",
-                ))
+                db.add(
+                    TaskDependency(
+                        from_task_id=from_task.id,
+                        to_task_id=to_task.id,
+                        dep_type="finish_to_start",
+                    )
+                )
 
     await db.commit()
     await db.refresh(project)

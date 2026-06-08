@@ -90,9 +90,8 @@ async def search(
     # 搜尋日常作業（admin 看所有人，一般使用者只看自己）
     if type in ("all", "daily"):
         from app.models.user import UserRole
-        daily_q = select(DailyTask).where(
-            DailyTask.title.ilike(pattern, escape=_ESC)
-        )
+
+        daily_q = select(DailyTask).where(DailyTask.title.ilike(pattern, escape=_ESC))
         if current_user.role != UserRole.admin:
             daily_q = daily_q.where(DailyTask.user_id == uid)
         d_result = await db.execute(daily_q.limit(10))

@@ -105,9 +105,7 @@ async def get_overview(
     is_admin = current_user.role.value == "admin"
 
     # admin 可看所有專案；一般使用者只看自己是成員的專案
-    membership_result = await db.execute(
-        select(ProjectMember).where(ProjectMember.user_id == uid)
-    )
+    membership_result = await db.execute(select(ProjectMember).where(ProjectMember.user_id == uid))
     memberships = {m.project_id: m.role.value for m in membership_result.scalars().all()}
 
     if is_admin:
@@ -121,14 +119,21 @@ async def get_overview(
         total_r = await db.execute(select(func.count()).where(Task.project_id == p.id))
         done_r = await db.execute(select(func.count()).where(Task.project_id == p.id, Task.status == "done"))
         mc_r = await db.execute(select(func.count()).where(ProjectMember.project_id == p.id))
-        result_items.append(ProjectOverviewItem(
-            id=p.id, name=p.name, description=p.description, color=p.color,
-            is_archived=p.is_archived, start_date=p.start_date, end_date=p.end_date,
-            member_count=mc_r.scalar() or 0,
-            task_total=total_r.scalar() or 0,
-            task_done=done_r.scalar() or 0,
-            my_role=memberships.get(p.id),
-        ))
+        result_items.append(
+            ProjectOverviewItem(
+                id=p.id,
+                name=p.name,
+                description=p.description,
+                color=p.color,
+                is_archived=p.is_archived,
+                start_date=p.start_date,
+                end_date=p.end_date,
+                member_count=mc_r.scalar() or 0,
+                task_total=total_r.scalar() or 0,
+                task_done=done_r.scalar() or 0,
+                my_role=memberships.get(p.id),
+            )
+        )
 
     result_items.sort(key=lambda x: (x.is_archived, x.name))
     return result_items
@@ -158,9 +163,7 @@ async def update_project(
     # 封存專案前的擋關與同步搬移
     if update_data.get("is_archived") is True and not project.is_archived:
         # 取得專案下所有任務 ID
-        task_ids_result = await db.execute(
-            select(Task.id).where(Task.project_id == project_id)
-        )
+        task_ids_result = await db.execute(select(Task.id).where(Task.project_id == project_id))
         task_ids = [r[0] for r in task_ids_result.all()]
 
         if task_ids:
@@ -181,36 +184,34 @@ async def update_project(
                 )
 
             # 同步搬移所有關聯日常任務到封存表
-            linked_result = await db.execute(
-                select(DailyTask).where(DailyTask.linked_task_id.in_(task_ids))
-            )
+            linked_result = await db.execute(select(DailyTask).where(DailyTask.linked_task_id.in_(task_ids)))
             linked_tasks = linked_result.scalars().all()
             if linked_tasks:
                 archived_at = datetime.now(UTC)
                 ids_to_move = []
                 for dt in linked_tasks:
-                    db.add(DailyTaskArchive(
-                        id=dt.id,
-                        user_id=dt.user_id,
-                        title=dt.title,
-                        description=dt.description,
-                        status=dt.status.value if hasattr(dt.status, "value") else dt.status,
-                        progress=dt.progress,
-                        date=dt.date,
-                        started_at=dt.started_at,
-                        ended_at=dt.ended_at,
-                        notify_at=dt.notify_at,
-                        work_minutes=dt.work_minutes,
-                        linked_task_id=dt.linked_task_id,
-                        created_at=dt.created_at,
-                        updated_at=dt.updated_at,
-                        archived_at=archived_at,
-                    ))
+                    db.add(
+                        DailyTaskArchive(
+                            id=dt.id,
+                            user_id=dt.user_id,
+                            title=dt.title,
+                            description=dt.description,
+                            status=dt.status.value if hasattr(dt.status, "value") else dt.status,
+                            progress=dt.progress,
+                            date=dt.date,
+                            started_at=dt.started_at,
+                            ended_at=dt.ended_at,
+                            notify_at=dt.notify_at,
+                            work_minutes=dt.work_minutes,
+                            linked_task_id=dt.linked_task_id,
+                            created_at=dt.created_at,
+                            updated_at=dt.updated_at,
+                            archived_at=archived_at,
+                        )
+                    )
                     ids_to_move.append(dt.id)
                 await db.flush()
-                await db.execute(
-                    delete(DailyTask).where(DailyTask.id.in_(ids_to_move))
-                )
+                await db.execute(delete(DailyTask).where(DailyTask.id.in_(ids_to_move)))
 
     for field, value in update_data.items():
         setattr(project, field, value)

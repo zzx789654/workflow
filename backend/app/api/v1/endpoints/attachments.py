@@ -195,15 +195,17 @@ async def list_project_files(
     for att in attachments:
         task_obj = await db.get(Task, att.task_id)
         uploader = await db.get(User, att.user_id)
-        out.append(ProjectFileOut(
-            id=att.id,
-            task_id=att.task_id,
-            task_title=task_obj.title if task_obj else "(已刪除)",
-            user_id=att.user_id,
-            uploader_name=uploader.display_name if uploader else "(未知)",
-            filename=att.filename,
-            content_type=att.content_type,
-            file_size=att.file_size,
-            created_at=att.created_at.isoformat(),
-        ))
+        out.append(
+            ProjectFileOut(
+                id=att.id,
+                task_id=att.task_id,
+                task_title=task_obj.title if task_obj else "(已刪除)",
+                user_id=att.user_id,
+                uploader_name=uploader.display_name if uploader else "(未知)",
+                filename=att.filename,
+                content_type=att.content_type,
+                file_size=att.file_size,
+                created_at=att.created_at.isoformat(),
+            )
+        )
     return out

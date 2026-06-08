@@ -155,7 +155,7 @@ async def get_dashboard_summary(
             and_(
                 Project.id.in_(project_ids),
                 Project.is_archived == False,
-                Project.end_date is not None,
+                Project.end_date.isnot(None),
                 Project.end_date <= today + timedelta(days=14),
             )
         )
@@ -181,15 +181,17 @@ async def get_dashboard_summary(
     for p in deadline_projects:
         total, done = await _project_progress(p.id)
         diff = (p.end_date - today).days
-        deadline_out.append({
-            "id": str(p.id),
-            "name": p.name,
-            "color": p.color,
-            "end_date": p.end_date.isoformat(),
-            "days_left": diff,
-            "task_total": total,
-            "task_done": done,
-        })
+        deadline_out.append(
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "color": p.color,
+                "end_date": p.end_date.isoformat(),
+                "days_left": diff,
+                "task_total": total,
+                "task_done": done,
+            }
+        )
 
     # 待辦與進行中日常任務（所有日期）
     daily_today_result = await db.execute(

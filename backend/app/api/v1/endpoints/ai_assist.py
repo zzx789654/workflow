@@ -65,17 +65,17 @@ async def _get_claude_suggestions(tasks_data: list[dict]) -> list[dict] | None:
         return None
     try:
         import anthropic
+
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         task_list = "\n".join(
-            f"- [{t['priority']}] {t['title']} "
-            f"(截止：{t['due_date'] or '未設定'}，狀態：{t['status']})"
+            f"- [{t['priority']}] {t['title']} (截止：{t['due_date'] or '未設定'}，狀態：{t['status']})"
             for t in tasks_data[:20]
         )
         prompt = (
             f"以下是我今天的任務清單：\n{task_list}\n\n"
             "請從中挑出最應該優先處理的 3 件任務，"
             "用 JSON 陣列回答，每項包含 title 和 reason（50 字以內，繁體中文）。"
-            "只輸出 JSON，不要其他說明。格式：[{\"title\":\"...\",\"reason\":\"...\"}]"
+            '只輸出 JSON，不要其他說明。格式：[{"title":"...","reason":"..."}]'
         )
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -105,9 +105,7 @@ async def priority_suggestions(
     if current_user.role.value == "admin":
         proj_res = await db.execute(select(ProjectMember.project_id))
     else:
-        proj_res = await db.execute(
-            select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id)
-        )
+        proj_res = await db.execute(select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id))
     proj_ids = [r[0] for r in proj_res.all()]
 
     tasks_res = await db.execute(
@@ -142,16 +140,18 @@ async def priority_suggestions(
     scored = []
     for t in tasks:
         blocking = blocking_map.get(str(t.id), 0)
-        scored.append({
-            "task_id": str(t.id),
-            "title": t.title,
-            "project_id": str(t.project_id),
-            "priority": t.priority,
-            "status": t.status,
-            "due_date": t.due_date,
-            "urgency_score": _urgency_score(t, blocking),
-            "reason": _rule_reason(t, blocking),
-        })
+        scored.append(
+            {
+                "task_id": str(t.id),
+                "title": t.title,
+                "project_id": str(t.project_id),
+                "priority": t.priority,
+                "status": t.status,
+                "due_date": t.due_date,
+                "urgency_score": _urgency_score(t, blocking),
+                "reason": _rule_reason(t, blocking),
+            }
+        )
     scored.sort(key=lambda x: x["urgency_score"], reverse=True)
 
     # Attempt Claude API upgrade

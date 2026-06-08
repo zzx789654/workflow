@@ -29,7 +29,7 @@ async def _check_member(project_id: uuid.UUID, user: User, db: AsyncSession):
 class DailyTaskInfo(BaseModel):
     id: uuid.UUID
     title: str
-    date: str          # ISO date string
+    date: str  # ISO date string
     work_minutes: int
 
     model_config = {"from_attributes": True}
