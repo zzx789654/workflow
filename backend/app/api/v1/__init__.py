@@ -35,6 +35,9 @@ router.include_router(auth.router)
 router.include_router(users.router)
 router.include_router(projects.router)
 router.include_router(milestones.router)
+# bulk_tasks 必須在 tasks 之前註冊：/tasks/bulk 需優先於 /tasks/{task_id} 匹配，
+# 否則 "bulk" 會被當成 task_id 嘗試解析為 UUID 而回 422。
+router.include_router(bulk_tasks.router)
 router.include_router(tasks.router)
 router.include_router(subtasks.router)
 router.include_router(time_logs.router)
@@ -51,7 +54,6 @@ router.include_router(dependencies.router)
 # P2 features
 router.include_router(weekly_reports.router)
 router.include_router(workload.router)
-router.include_router(bulk_tasks.router)
 router.include_router(reactions.router)
 router.include_router(attachments.router)
 router.include_router(attachments.project_files_router)
