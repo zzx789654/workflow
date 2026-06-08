@@ -117,3 +117,15 @@ async def task_id(client: AsyncClient, admin_token: str, project_id: str):
     )
     assert resp.status_code == 201
     return resp.json()["id"]
+
+
+@pytest_asyncio.fixture
+async def comment_id(client: AsyncClient, admin_token: str, project_id: str, task_id: str):
+    """Create a comment on the fixture task and return its id."""
+    resp = await client.post(
+        f"/api/v1/projects/{project_id}/tasks/{task_id}/comments",
+        json={"content": "Fixture comment"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert resp.status_code == 201
+    return resp.json()["id"]
