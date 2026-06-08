@@ -70,3 +70,50 @@ async def admin_token(client: AsyncClient, admin_user):
     )
     assert resp.status_code == 200
     return resp.json()["access_token"]
+
+
+@pytest_asyncio.fixture
+async def member_user(client: AsyncClient):
+    """A plain (non-admin) registered user."""
+    email = f"member_{uuid.uuid4().hex[:8]}@test.com"
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "display_name": "Member", "password": "Member1234"},
+    )
+    assert resp.status_code == 201
+    user_id = resp.json()["id"]
+    return type("MemberUser", (), {"email": email, "id": user_id})()
+
+
+@pytest_asyncio.fixture
+async def member_token(client: AsyncClient, member_user):
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"email": member_user.email, "password": "Member1234"},
+    )
+    assert resp.status_code == 200
+    return resp.json()["access_token"]
+
+
+@pytest_asyncio.fixture
+async def project_id(client: AsyncClient, admin_token: str):
+    """Create a project owned by the admin user and return its id."""
+    resp = await client.post(
+        "/api/v1/projects/",
+        json={"name": "Fixture Project", "color": "#123456"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
+@pytest_asyncio.fixture
+async def task_id(client: AsyncClient, admin_token: str, project_id: str):
+    """Create a task in the fixture project and return its id."""
+    resp = await client.post(
+        f"/api/v1/projects/{project_id}/tasks/",
+        json={"title": "Fixture Task"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert resp.status_code == 201
+    return resp.json()["id"]

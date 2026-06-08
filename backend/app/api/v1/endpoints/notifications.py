@@ -20,15 +20,21 @@ _MENTION_RE = re.compile(r"@(\S+)")
 
 
 async def _notify_task_progress(
-    task: Task,
-    actor: User,
+    task_id: uuid.UUID,
+    task_title: str,
+    project_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    actor_name: str,
     db: AsyncSession,
     old_status: str | None = None,
     new_status: str | None = None,
     old_progress: int | None = None,
     new_progress: int | None = None,
 ):
-    """當任務 status 或 progress 有異動時，通知所有專案成員（排除操作者自己）。"""
+    """當任務 status 或 progress 有異動時，通知所有專案成員（排除操作者自己）。
+
+    接收純值（非 ORM 物件），避免呼叫端 commit/expire 後存取屬性觸發 lazy load。
+    """
     parts = []
     if old_status and new_status and old_status != new_status:
         status_label = {
@@ -45,13 +51,13 @@ async def _notify_task_progress(
     if not parts:
         return
 
-    message = f"{actor.display_name} 將任務「{task.title}」的{'、'.join(parts)}"
+    message = f"{actor_name} 將任務「{task_title}」的{'、'.join(parts)}"
 
     # 取得專案所有成員（排除操作者）
     members_result = await db.execute(
         select(ProjectMember).where(
-            ProjectMember.project_id == task.project_id,
-            ProjectMember.user_id != actor.id,
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id != actor_id,
         )
     )
     members = members_result.scalars().all()
@@ -59,16 +65,16 @@ async def _notify_task_progress(
     ws_payload = {
         "type": "notification",
         "message": message,
-        "ref_id": str(task.id),
+        "ref_id": str(task_id),
         "ref_type": "task",
     }
 
     for member in members:
         notif = Notification(
             user_id=member.user_id,
-            actor_id=actor.id,
+            actor_id=actor_id,
             type="task_progress",
-            ref_id=task.id,
+            ref_id=task_id,
             ref_type="task",
             message=message,
         )
@@ -77,7 +83,7 @@ async def _notify_task_progress(
         # 廣播到個人通知頻道（全域 WS）
         await manager.broadcast(f"__notif_{member.user_id}", ws_payload)
         # 同時廣播到專案頻道（讓在該專案頁面的使用者也能即時更新）
-        await manager.broadcast(str(task.project_id), {**ws_payload, "user_id": str(member.user_id)})
+        await manager.broadcast(str(project_id), {**ws_payload, "user_id": str(member.user_id)})
 
 
 async def _parse_and_notify(

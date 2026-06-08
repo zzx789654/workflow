@@ -136,13 +136,18 @@ async def update_task(
             db=db,
         )
 
-    # 記錄通知所需的新值（在 commit 前讀取，避免 expire 後失效）
+    # 記錄通知所需的新值（在 commit/expire 前讀取，避免 expire 後失效）
     new_status = now_done_val
     new_progress = task.progress
     notify_old_status = old_status if "status" in update_data else None
     notify_new_status = new_status if "status" in update_data else None
     notify_old_progress = old_progress if "progress" in update_data else None
     notify_new_progress = new_progress if "progress" in update_data else None
+    # expire_all() 之後 current_user / task 物件屬性會被清空，先快照純值，
+    # 避免後續在 f-string 同步情境下對已 expire 的 ORM 屬性做 lazy load。
+    actor_id = current_user.id
+    actor_name = current_user.display_name
+    notify_task_title = task.title
 
     await db.commit()
     db.expire_all()  # 強制 SQLAlchemy 重新從 DB 載入，避免 identity map 快取舊 assignees
@@ -151,8 +156,11 @@ async def update_task(
 
     # commit 後再通知，確保前端 fetch 時 DB 已有最新資料
     await _notify_task_progress(
-        task=loaded,
-        actor=current_user,
+        task_id=task_id,
+        task_title=notify_task_title,
+        project_id=project_id,
+        actor_id=actor_id,
+        actor_name=actor_name,
         db=db,
         old_status=notify_old_status,
         new_status=notify_new_status,
