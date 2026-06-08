@@ -1,3 +1,43 @@
+## [2026-06-09] 輪結 Round 16 — 後端測試覆蓋率 50.80%→67%（進行中，目標 90%）
+
+- 現況：**覆蓋率 67%、196 測試全綠、CI gate 調至 65%；下一步 = 繼續補測至 90%（見 待修改.md G04 接續點）**
+- PM：使用者要求覆蓋率拉到 90%，採分批策略（每批 1 模組群、本地實跑驗證）
+- Dev/Sec：9 個批次新增 ~185 測試；**測試過程發現並修復 9 個真實 production bug**（全是整合測試才會觸發、CI 舊測試漏掉）
+  - 5 個 Date-as-str bug（recurring spawn / weekly overdue / projects end_date×2 / ai_assist）
+  - 2 個 SQLAlchemy session bug（expire_all 誤清 current_user / expire_on_commit 快取 labels）
+  - 1 個 SQLAlchemy `is None` 誤用（announcements 永不顯示）
+  - 1 個路由註冊順序 bug（/tasks/bulk 被 /tasks/{id} 攔截，批次操作全壞）
+- QA：每批 ruff format+check 通過後才 commit；全套本地實跑 196 passed
+- 過關狀態：G1✅ G2✅ G3✅ G4✅ G5✅（功能持續擴充中）
+
+### 教訓 / 準則
+
+**教訓 64：FastAPI 路由註冊順序——靜態路徑要在動態參數路徑之前**
+- 情境：`/tasks/bulk` 註冊在 `/tasks/{task_id}` 之後，"bulk" 被當 UUID 解析 → 422，整個批次功能無法使用
+- 準則：include_router 時，把含靜態 segment 的 router 排在含 `{param}` 的同前綴 router 之前
+- **How to apply：** 新增 `/parent/static-word` 端點時，確認它在 `/parent/{id}` router 之前 include
+
+**教訓 65：Date 欄位永遠傳 date 物件，不要 str()/isoformat()**
+- 情境：5 個 bug 都源於把 `Task.due_date`（Date 欄）當字串——`str(end_date)`、`isoformat()`、`fromisoformat(date_obj)`
+- 準則：SQLAlchemy Date 欄位的 values()/比較/建構一律用 `date` 物件；讀取時若可能是 legacy str 用 `isinstance` 容錯
+- **How to apply：** 寫到 due_date/end_date/date 欄位前，確認傳入的是 `datetime.date` 而非字串
+
+**教訓 66：expire_on_commit=False 下，改完關聯要顯式 expire 該關聯**
+- 情境：daily_task label 更新後，`_load` 的 selectinload 回傳 session 快取的舊 labels
+- 準則：prod session 用 expire_on_commit=False，改完 collection 後重查前要 `db.expire(obj, ["relation"])`；切忌用 `expire_all()`（會連帶清掉 current_user 造成 lazy-load MissingGreenlet）
+- **How to apply：** 「刪舊關聯+加新關聯」後若要回傳重查結果，針對該關聯 expire
+
+**教訓 67：整合測試要實際操作資料，不只打端點看 200**
+- 情境：9 個 bug 全是「建立資料→操作→驗證」才觸發；舊 CI 測試只測空資料路徑所以全綠
+- 準則：每個寫入端點至少要有一條「建資料→改→讀回驗證」的完整路徑測試
+- **How to apply：** 測 PATCH/PUT 端點時，斷言回傳值真的變了，不只 status 200
+
+### 過程原始輸出位置
+- 測試檔：backend/tests/test_*.py（按批次命名）；覆蓋率 term-missing 報告於本地容器執行取得
+- 接續細節與剩餘低覆蓋模組行號：待修改.md G04 區段
+
+---
+
 ## [2026-06-08] 輪結 Round 15 — G5 CI 地端執行（功能修復 + 安全掃描 + TypeScript 清理）
 
 - 現況：**G5✅（CI 地端通過）；下一步 = G6（CD / 使用者手動驗收）**
