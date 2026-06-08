@@ -22,10 +22,20 @@ router = APIRouter(prefix="/ai/priority-suggestions", tags=["ai_assist"])
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 
+def _as_date(value) -> date | None:
+    """due_date is a Date column (date object), but tolerate legacy ISO strings."""
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(value)
+
+
 def _urgency_score(task: Task, blocking_count: int) -> float:
     score = 0.0
-    if task.due_date:
-        days_left = (date.fromisoformat(task.due_date) - date.today()).days
+    due = _as_date(task.due_date)
+    if due:
+        days_left = (due - date.today()).days
         if days_left < 0:
             score += 50 + min(abs(days_left) * 2, 30)
         elif days_left == 0:
@@ -44,8 +54,9 @@ def _urgency_score(task: Task, blocking_count: int) -> float:
 
 def _rule_reason(task: Task, blocking: int) -> str:
     parts = []
-    if task.due_date:
-        days_left = (date.fromisoformat(task.due_date) - date.today()).days
+    due = _as_date(task.due_date)
+    if due:
+        days_left = (due - date.today()).days
         if days_left < 0:
             parts.append(f"已逾期 {abs(days_left)} 天")
         elif days_left == 0:
