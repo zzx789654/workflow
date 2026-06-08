@@ -7,9 +7,9 @@ async def test_search_empty(client: AsyncClient, admin_token: str):
     resp = await client.get("/api/v1/search/?q=nonexistent", headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
     data = resp.json()
-    assert "projects" in data
-    assert "tasks" in data
-    assert "daily_tasks" in data
+    assert "results" in data
+    assert "total" in data
+    assert data["total"] == 0
 
 
 @pytest.mark.asyncio
@@ -21,7 +21,9 @@ async def test_search_project_by_name(client: AsyncClient, admin_token: str):
     )
     resp = await client.get("/api/v1/search/?q=SearchTarget", headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
-    assert any("SearchTarget" in p["name"] for p in resp.json()["projects"])
+    data = resp.json()
+    assert data["total"] > 0
+    assert any(r["type"] == "project" and "SearchTarget" in r["title"] for r in data["results"])
 
 
 @pytest.mark.asyncio
@@ -39,4 +41,5 @@ async def test_search_daily_task_by_title(client: AsyncClient, admin_token: str)
     )
     resp = await client.get("/api/v1/search/?q=UniqueSearchDaily", headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
-    assert any("UniqueSearchDaily" in d["title"] for d in resp.json()["daily_tasks"])
+    data = resp.json()
+    assert any(r["type"] == "daily" and "UniqueSearchDaily" in r["title"] for r in data["results"])

@@ -7,10 +7,10 @@ async def test_dashboard_summary(client: AsyncClient, admin_token: str):
     resp = await client.get("/api/v1/dashboard/summary", headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
     data = resp.json()
-    assert "todo_count" in data
-    assert "overdue_count" in data
-    assert "completed_count" in data
-    assert "trend" in data
+    assert "kpi" in data
+    assert "todo" in data["kpi"]
+    assert "overdue" in data["kpi"]
+    assert "completed_this_week" in data["kpi"]
     assert "daily_tasks" in data
 
 
