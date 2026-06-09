@@ -566,3 +566,34 @@
 - **Why：** 67% 是量測假象不是真實缺口；沒先修設定就盲目補測會浪費大量工。
 - **How to apply：** 任何 async + SQLAlchemy[asyncio] 專案，設 CI coverage gate 前先確認 `[tool.coverage.run].concurrency` 含 greenlet；補了測試覆蓋率卻不動，第一個懷疑這個。（同集團 prompt-monitor commit 6aa925b 踩過同坑。）
 - 配套：先刪可確認的 dead code（本輪刪 `schemas/milestone.py`、`projects.require_project_role`，grep 全庫零引用）再算覆蓋率，分母更乾淨。
+
+---
+
+## 2026-06-09 輪結 Round G05 — 認證重構（username 登入 + remote-first fallback + 來源互斥）
+
+### 本輪紀錄
+- 走 Secure SDLC 編排（Gate G1~G4）。需求：登入鍵 email→username、remote-first 失敗 fallback local、local/remote 來源互斥、local 可改 email/remote 自動帶遠端 email、admin 改走 fallback（remote 不得升 admin 防鎖死）。
+- PM（G1）：與使用者確認 5+2 個決策點（認證順序/互斥/欄位/admin 逃生門/前端範圍/local 模式），計畫核准。
+- Dev（G2）：User model +username/auth_source、Migration 017、auth.py login 重寫、users.py 守門、main.py superadmin、前端 6 檔。後端 import OK、前端 build OK。
+- Sec（G3）：對照 OWASP A07 逐項；**發現並修正 1 個真實缺陷**（互斥鎖死，見教訓 57）。
+- QA（G4）：既有 10 個 auth 測試破口全修（其餘 300 經 conftest fixture 自動適配）；新增 test_auth_refactor.py 13 測試。全套 335 passed、覆蓋率 97%、ruff 全綠、前端 build 通過。
+- 過關狀態：G1✅ G2✅ G3✅ G4✅；G5（CI push）/G6（部署）待後續。
+
+### 教訓 / 準則
+
+**教訓 56：SQLAlchemy `unique=True` 的唯一性可能來自 constraint 而非 index，移除要 drop 對的東西**
+- 情境（G05）：要讓 email 不再唯一，migration 只 `drop_index("ix_users_email")` 並重建非唯一 index，但實測 email 仍唯一。
+- 根因：唯一性來自 migration 001 的「email VARCHAR NOT NULL UNIQUE」→ PostgreSQL 自動產生的 **constraint `users_email_key`**；`ix_users_email` 其實是另外建的普通 index。drop index 沒碰到 constraint。
+- 修復：`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key`（用 IF EXISTS 容錯命名差異）。
+- **How to apply：** 改欄位唯一性後，**一定用 `\d table` 或查 pg_constraint 實際確認**唯一性真的解除，別只看 migration 跑過沒報錯。constraint 與 index 是兩回事。
+
+**教訓 57：多後端認證的「來源互斥」不能用「拒登」實作，否則會鎖死帳號**
+- 情境（G05 G3 資安確認抓到）：remote-first fallback local 設計中，原邏輯對「remote 驗證成功但帳號 auth_source 不符（如 local 帳號）」直接 raise 401。結果 local 帳號在 ldap 模式下，只要 LDAP 恰好認得同名帳號，fallback local 永遠跑不到 → **local 帳號被同名 remote 鎖死，連本地密碼都用不了**。
+- 根因：把「互斥」誤解為「拒絕」。互斥的真正目的是「remote 不接管 local 帳號」，不是「鎖死」。
+- 修復：remote 分支的進入條件改為 `user is None or user.auth_source == backend`；來源不符時**不進 remote、直接落 fallback local**，讓 local 帳號永遠能用本地密碼登入。
+- **Why：** 認證的可用性與安全性要一起顧；防接管的同時不能擋住合法本地登入。
+- **How to apply：** 設計多來源認證時，「某來源不適用此帳號」的正確處理是**略過該來源往下試**，而非整體拒登。每條 fallback 路徑都要能獨立讓合法使用者進來。
+
+**教訓 58：重構登入鍵（email→username）時，先改 conftest fixture 能把散落改動降到最低**
+- 情境（G05）：登入鍵改 username 後，理論上所有需登入的測試都會壞。實際只破 10 個（全是直接打 /auth/login 的 auth 測試），其餘 300 個透過 conftest 的 admin_token/member_token fixture 自動適配。
+- **How to apply：** 認證/共用前置邏輯的大改，優先把變更收斂在 conftest fixture（單一真相來源），再跑全套看真正破口，逐檔修。別一開始就散彈打所有測試檔。

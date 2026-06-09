@@ -5,8 +5,8 @@ import { authApi } from '../api/auth'
 interface AuthState {
   user: User | null
   loading: boolean
-  login: (email: string, password: string) => Promise<void>
-  register: (email: string, displayName: string, password: string) => Promise<void>
+  login: (username: string, password: string) => Promise<void>
+  register: (username: string, displayName: string, password: string, email?: string) => Promise<void>
   logout: () => void
   fetchMe: () => Promise<void>
 }
@@ -16,16 +16,16 @@ export const useAuthStore = create<AuthState>((set) => ({
   // 若 localStorage 有 token，初始設為 true 避免 RequireAuth 在 fetchMe 完成前就跳轉 /login
   loading: !!localStorage.getItem('access_token'),
 
-  login: async (email, password) => {
-    const res = await authApi.login(email, password)
+  login: async (username, password) => {
+    const res = await authApi.login(username, password)
     localStorage.setItem('access_token', res.data.access_token)
     localStorage.setItem('refresh_token', res.data.refresh_token)
     const me = await authApi.me()
     set({ user: me.data })
   },
 
-  register: async (email, displayName, password) => {
-    await authApi.register(email, displayName, password)
+  register: async (username, displayName, password, email) => {
+    await authApi.register(username, displayName, password, email)
   },
 
   logout: () => {

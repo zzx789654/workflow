@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 
 export default function RegisterPage() {
+  const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [password, setPassword] = useState('')
@@ -16,7 +17,7 @@ export default function RegisterPage() {
     setError('')
     setLoading(true)
     try {
-      await register(email, displayName, password)
+      await register(username, displayName, password, email)
       navigate('/login')
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -32,12 +33,25 @@ export default function RegisterPage() {
         <h1 className="text-2xl font-bold text-primary-600 mb-6 text-center">建立 WorkFlow 帳號</h1>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">顯示名稱</label>
-            <input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required autoFocus />
+            <label className="block text-sm font-medium text-gray-700 mb-1">帳號（英數與底線，至少 3 碼）</label>
+            <input
+              className="input"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              autoFocus
+              minLength={3}
+              pattern="[A-Za-z0-9_]+"
+              title="只能使用英文字母、數字與底線"
+            />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">電子郵件</label>
-            <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <label className="block text-sm font-medium text-gray-700 mb-1">顯示名稱</label>
+            <input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">電子郵件（選填）</label>
+            <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">密碼（至少 8 碼含數字）</label>

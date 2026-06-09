@@ -17,7 +17,7 @@ async def test_change_password_success(client: AsyncClient, admin_token: str, ad
     # login with new password works
     login = await client.post(
         "/api/v1/auth/login",
-        json={"email": admin_user.email, "password": "NewPass5678"},
+        json={"username": admin_user.username, "password": "NewPass5678"},
     )
     assert login.status_code == 200
 
@@ -36,7 +36,7 @@ async def test_change_password_wrong_old(client: AsyncClient, admin_token: str):
 async def test_refresh_token(client: AsyncClient, admin_user):
     login = await client.post(
         "/api/v1/auth/login",
-        json={"email": admin_user.email, "password": "Admin1234"},
+        json={"username": admin_user.username, "password": "Admin1234"},
     )
     refresh = login.json()["refresh_token"]
     resp = await client.post(f"/api/v1/auth/refresh?refresh_token={refresh}")

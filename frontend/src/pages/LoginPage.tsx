@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -15,7 +15,7 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     try {
-      await login(email, password)
+      await login(username, password)
       navigate('/')
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -34,8 +34,8 @@ export default function LoginPage() {
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">電子郵件</label>
-            <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+            <label className="block text-sm font-medium text-gray-700 mb-1">帳號</label>
+            <input className="input" type="text" value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">密碼</label>

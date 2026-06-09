@@ -22,7 +22,7 @@ async def test_registration_disabled(client: AsyncClient, admin_token: str):
     )
     resp = await client.post(
         "/api/v1/auth/register",
-        json={"email": "blocked@test.com", "display_name": "B", "password": "Secure1234"},
+        json={"username": "blocked", "email": "blocked@test.com", "display_name": "B", "password": "Secure1234"},
     )
     assert resp.status_code == 403
 
@@ -68,13 +68,18 @@ async def test_login_ldap_backend_autoprovision(client: AsyncClient, admin_token
     fake_ldap3.Tls = lambda *a, **k: MagicMock()
     monkeypatch.setitem(sys.modules, "ldap3", fake_ldap3)
 
-    # new user (not in DB) authenticates via LDAP -> auto-provisioned
+    # new user (not in DB) authenticates via LDAP -> auto-provisioned with username
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "newldap@example.com", "password": "ldappass"},
+        json={"username": "newldap", "password": "ldappass"},
     )
     assert resp.status_code == 200
     assert "access_token" in resp.json()
+    # verify auto-provisioned account: auth_source=ldap, remote email pulled in
+    token = resp.json()["access_token"]
+    me = await client.get("/api/v1/users/me", headers=_auth(token))
+    assert me.json()["auth_source"] == "ldap"
+    assert me.json()["email"] == "newldap@example.com"
 
 
 @pytest.mark.asyncio
@@ -85,11 +90,11 @@ async def test_login_ldap_failure(client: AsyncClient, admin_token: str, monkeyp
         headers=_auth(admin_token),
     )
 
-    # ldap3 missing -> authenticate_ldap returns None -> 401
+    # ldap3 missing -> authenticate_ldap returns None -> fallback local fails (no such user) -> 401
     monkeypatch.setitem(sys.modules, "ldap3", None)
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "nobody@test.com", "password": "x"},
+        json={"username": "nobody", "password": "x"},
     )
     assert resp.status_code == 401
 

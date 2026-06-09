@@ -7,9 +7,11 @@ from app.models.user import UserRole
 
 
 class UserCreate(BaseModel):
-    email: EmailStr
+    # username 是登入鍵；只允許英數與底線，全域唯一（後端再查重）
+    username: str = Field(..., min_length=3, max_length=100, pattern=r"^[A-Za-z0-9_]+$")
     display_name: str = Field(..., min_length=1, max_length=100)
     password: str = Field(..., min_length=8, max_length=128)
+    email: EmailStr | None = None  # 選填，純聯絡資訊
 
     @field_validator("password")
     @classmethod
@@ -23,11 +25,14 @@ class UserUpdate(BaseModel):
     display_name: str | None = Field(None, min_length=1, max_length=100)
     avatar_url: str | None = None
     auto_archive_days: int | None = Field(None, ge=0, le=3650)
+    email: EmailStr | None = None  # 僅 local 帳號可改（後端守門）
 
 
 class UserOut(BaseModel):
     id: uuid.UUID
-    email: str
+    username: str
+    email: str | None
+    auth_source: str
     display_name: str
     role: UserRole
     is_active: bool
@@ -45,5 +50,5 @@ class Token(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    username: str = Field(..., min_length=1, max_length=100)
     password: str

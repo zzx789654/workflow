@@ -2,11 +2,11 @@ import { api } from './client'
 import type { User, Token } from '../types'
 
 export const authApi = {
-  register: (email: string, display_name: string, password: string) =>
-    api.post<User>('/auth/register', { email, display_name, password }),
+  register: (username: string, display_name: string, password: string, email?: string) =>
+    api.post<User>('/auth/register', { username, display_name, password, email: email || undefined }),
 
-  login: (email: string, password: string) =>
-    api.post<Token>('/auth/login', { email, password }),
+  login: (username: string, password: string) =>
+    api.post<Token>('/auth/login', { username, password }),
 
   me: () => api.get<User>('/users/me'),
 }

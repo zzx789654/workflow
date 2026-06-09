@@ -21,7 +21,11 @@ async def me(current_user: User = Depends(get_current_user)):
 async def update_me(
     body: UserUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
-    for field, value in body.model_dump(exclude_none=True).items():
+    update_data = body.model_dump(exclude_none=True)
+    # email 僅 local 帳號可改；remote 帳號 email 由遠端目錄管理，登入時自動帶入
+    if "email" in update_data and current_user.auth_source != "local":
+        raise HTTPException(status_code=400, detail="遠端帳號的 Email 由目錄服務管理，無法在此修改")
+    for field, value in update_data.items():
         setattr(current_user, field, value)
     await db.commit()
     await db.refresh(current_user)
@@ -42,6 +46,10 @@ async def update_user_role(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    # 防鎖死：admin 走 remote-first fallback local，remote 帳號無可用本地密碼，
+    # 一旦升為 admin 將永久無法登入（remote 不被視為 admin 逃生門）。從根本擋下。
+    if role == UserRole.admin and user.auth_source != "local":
+        raise HTTPException(status_code=400, detail="遠端帳號不可設為管理者，請改用本地帳號")
     user.role = role
     await db.commit()
     await db.refresh(user)

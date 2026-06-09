@@ -85,7 +85,7 @@ async def test_refresh_success(client: AsyncClient, admin_token: str, admin_user
     # log in to get a valid refresh token, then refresh
     login = await client.post(
         "/api/v1/auth/login",
-        json={"email": admin_user.email, "password": "Admin1234"},
+        json={"username": admin_user.username, "password": "Admin1234"},
     )
     rt = login.json()["refresh_token"]
     resp = await client.post(f"/api/v1/auth/refresh?refresh_token={rt}")

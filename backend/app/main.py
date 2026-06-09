@@ -23,14 +23,19 @@ limiter = Limiter(key_func=get_remote_address)
 
 async def _ensure_superadmin() -> None:
     async with AsyncSessionLocal() as db:
-        result = await db.execute(select(User).where(User.email == settings.FIRST_SUPERADMIN_EMAIL))
+        # superadmin 登入帳號取 email 的 @ 前綴；admin 一律 local 來源（保有逃生門）
+        admin_email = settings.FIRST_SUPERADMIN_EMAIL
+        admin_username = admin_email.split("@")[0] if "@" in admin_email else admin_email
+        result = await db.execute(select(User).where(User.username == admin_username))
         if result.scalar_one_or_none():
             return
         admin = User(
-            email=settings.FIRST_SUPERADMIN_EMAIL,
+            username=admin_username,
+            email=admin_email,
             display_name="Administrator",
             hashed_password=hash_password(settings.FIRST_SUPERADMIN_PASSWORD),
             role=UserRole.admin,
+            auth_source="local",
         )
         db.add(admin)
         await db.commit()

@@ -20,7 +20,11 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email: Mapped[str] = mapped_column(String(254), unique=True, index=True, nullable=False)
+    # username 是登入鍵（全域唯一）；email 改為可空、非唯一的聯絡資訊
+    username: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    email: Mapped[str | None] = mapped_column(String(254), index=True, nullable=True)
+    # 帳號來源：local（本地密碼）/ ldap / radius（遠端驗證，自動建立）
+    auth_source: Mapped[str] = mapped_column(String(20), default="local", nullable=False)
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(SAEnum(UserRole, create_type=False), default=UserRole.member, nullable=False)

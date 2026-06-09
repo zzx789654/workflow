@@ -34,13 +34,16 @@ async def register(request: Request, body: UserCreate, db: AsyncSession = Depend
     if allow.lower() not in ("true", "1", "yes"):
         raise HTTPException(status_code=403, detail="自行註冊已關閉，請聯絡管理員開通帳號")
 
-    result = await db.execute(select(User).where(User.email == body.email))
+    # 互斥：username 全域唯一，且不可與任何來源（含 remote auto-provision）的帳號重疊
+    result = await db.execute(select(User).where(User.username == body.username))
     if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=400, detail="此帳號名稱已被使用")
     user = User(
+        username=body.username,
         email=body.email,
         display_name=body.display_name,
         hashed_password=hash_password(body.password),
+        auth_source="local",
     )
     db.add(user)
     await db.commit()
@@ -60,8 +63,11 @@ async def _get_auth_backend(db) -> str:
         return "local"
 
 
-async def _try_remote_auth(backend: str, username: str, password: str, db) -> bool:
-    """Attempt LDAP or RADIUS authentication; return True on success."""
+async def _try_remote_auth(backend: str, username: str, password: str, db) -> tuple[bool, str | None]:
+    """Attempt LDAP or RADIUS authentication.
+
+    Returns (success, remote_email). RADIUS has no directory email → email is None.
+    """
     from app.core.crypto import decrypt_secret
     from app.models.system_setting import SystemSetting
 
@@ -89,12 +95,14 @@ async def _try_remote_auth(backend: str, username: str, password: str, db) -> bo
             username=username,
             password=password,
         )
-        return info is not None
+        if info is None:
+            return False, None
+        return True, (info.email or None)
 
     if backend == "radius":
         from app.core.auth_backends.radius_auth import authenticate_radius
 
-        return authenticate_radius(
+        ok = authenticate_radius(
             host=g("radius_host"),
             port=int(g("radius_port", "1812")),
             secret=g("radius_secret"),
@@ -102,42 +110,59 @@ async def _try_remote_auth(backend: str, username: str, password: str, db) -> bo
             username=username,
             password=password,
         )
+        return ok, None
 
-    return False
+    return False, None
 
 
 @router.post("/login", response_model=Token)
 @limiter.limit("10/minute")
 async def login(request: Request, body: LoginRequest, db: AsyncSession = Depends(get_db)):
+    """登入順序：依 auth_backend 設定先試單一 remote（ldap/radius），失敗再 fallback 比對 local 密碼。
+    auth_backend=local 時只走 local，完全不碰 remote。
+    來源互斥：username 撞到不同 auth_source 的帳號一律拒登。
+    """
     auth_backend = await _get_auth_backend(db)
 
-    result = await db.execute(select(User).where(User.email == body.email, User.is_active == True))
+    result = await db.execute(select(User).where(User.username == body.username, User.is_active == True))
     user = result.scalar_one_or_none()
 
-    if auth_backend == "local" or (user and user.role.value == "admin"):
-        # Local auth: always available; admin account always uses local password
-        if not user or not verify_password(body.password, user.hashed_password):
-            logger.warning("Auth(local) failed for email=%s", body.email)
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    else:
-        # Remote auth (LDAP / RADIUS): use email prefix as username
-        username = body.email.split("@")[0] if "@" in body.email else body.email
-        ok = await _try_remote_auth(auth_backend, username, body.password, db)
-        if not ok:
-            logger.warning("Auth(%s) failed for email=%s", auth_backend, body.email)
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-        # Auto-provision user if not exists
-        if not user:
-            user = User(
-                email=body.email,
-                display_name=username,
-                hashed_password=hash_password("__remote_auth__"),
-            )
-            db.add(user)
-            await db.commit()
-            await db.refresh(user)
+    authed = False
 
-    logger.info("Login success backend=%s user=%s", auth_backend, body.email)
+    # 1) remote-first（僅當設定為 ldap/radius）
+    #    互斥原則：remote 只能驗證 remote 來源（或全新）的帳號；若 username 已屬 local 帳號，
+    #    remote 即使驗證成功也「不接管」——視同 remote 未命中，落到 fallback local，
+    #    讓 local 帳號永遠能用自己的本地密碼登入（避免被 remote 同名鎖死）。
+    if auth_backend in ("ldap", "radius") and (user is None or user.auth_source == auth_backend):
+        ok, remote_email = await _try_remote_auth(auth_backend, body.username, body.password, db)
+        if ok:
+            if user is None:
+                # auto-provision 遠端帳號，帶入遠端 email
+                user = User(
+                    username=body.username,
+                    email=remote_email,
+                    display_name=body.username,
+                    hashed_password=hash_password("__remote_auth__"),
+                    auth_source=auth_backend,
+                )
+                db.add(user)
+                await db.commit()
+                await db.refresh(user)
+            else:
+                # 既有 remote 帳號：自動帶入/更新遠端 email
+                if remote_email and user.email != remote_email:
+                    user.email = remote_email
+                    await db.commit()
+                    await db.refresh(user)
+            authed = True
+
+    # 2) fallback local：必須是 local 來源且本地密碼正確
+    if not authed:
+        if not user or user.auth_source != "local" or not verify_password(body.password, user.hashed_password):
+            logger.warning("Auth failed for username=%s (backend=%s)", body.username, auth_backend)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    logger.info("Login success backend=%s user=%s", auth_backend, body.username)
     return Token(
         access_token=create_access_token(str(user.id)),
         refresh_token=create_refresh_token(str(user.id)),

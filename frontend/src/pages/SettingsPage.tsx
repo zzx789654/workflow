@@ -12,7 +12,7 @@ const usersApi = {
     api.patch<User>(`/users/${userId}/role?role=${role}`),
   deactivate: (userId: string) =>
     api.delete(`/users/${userId}`),
-  updateMe: (data: { display_name?: string; avatar_url?: string }) =>
+  updateMe: (data: { display_name?: string; avatar_url?: string; email?: string }) =>
     api.patch<User>('/users/me', data),
   changePassword: (oldPw: string, newPw: string) =>
     api.post('/auth/change-password', { old_password: oldPw, new_password: newPw }),
@@ -32,17 +32,23 @@ function ProfileTab() {
   const user = useAuthStore(s => s.user)
   const fetchMe = useAuthStore(s => s.fetchMe)
   const [displayName, setDisplayName] = useState(user?.display_name ?? '')
+  const [email, setEmail] = useState(user?.email ?? '')
   const [saving, setSaving] = useState(false)
   const [oldPw, setOldPw] = useState('')
   const [newPw, setNewPw] = useState('')
   const [pwMsg, setPwMsg] = useState('')
   const [pwSaving, setPwSaving] = useState(false)
 
+  // 遠端帳號（ldap/radius）的 Email 由目錄服務管理，本地無法修改
+  const isLocal = user?.auth_source === 'local'
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     try {
-      await usersApi.updateMe({ display_name: displayName })
+      const payload: { display_name: string; email?: string } = { display_name: displayName }
+      if (isLocal) payload.email = email || undefined
+      await usersApi.updateMe(payload)
       await fetchMe()
     } finally { setSaving(false) }
   }
@@ -65,13 +71,26 @@ function ProfileTab() {
         <h3 className="text-sm font-semibold text-gray-700 mb-3">個人資料</h3>
         <form onSubmit={handleSaveProfile} className="space-y-3">
           <div>
+            <label className="text-xs text-gray-500 block mb-1">帳號</label>
+            <input className="input w-full bg-gray-50" value={user?.username ?? ''} disabled />
+          </div>
+          <div>
             <label className="text-xs text-gray-500 block mb-1">顯示名稱</label>
             <input className="input w-full" value={displayName}
               onChange={e => setDisplayName(e.target.value)} required />
           </div>
           <div>
-            <label className="text-xs text-gray-500 block mb-1">Email</label>
-            <input className="input w-full bg-gray-50" value={user?.email ?? ''} disabled />
+            <label className="text-xs text-gray-500 block mb-1">
+              Email{!isLocal && <span className="text-gray-400">（由目錄服務管理，無法修改）</span>}
+            </label>
+            <input
+              className={`input w-full ${isLocal ? '' : 'bg-gray-50'}`}
+              type="email"
+              value={isLocal ? email : (user?.email ?? '')}
+              onChange={e => setEmail(e.target.value)}
+              disabled={!isLocal}
+              placeholder={isLocal ? '選填' : ''}
+            />
           </div>
           <div>
             <label className="text-xs text-gray-500 block mb-1">系統角色</label>

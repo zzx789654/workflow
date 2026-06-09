@@ -7,7 +7,9 @@ export type DailyTaskStatus = 'pending' | 'in_progress' | 'done' | 'cancelled'
 
 export interface User {
   id: string
-  email: string
+  username: string
+  email: string | null
+  auth_source: string
   display_name: string
   role: UserRole
   is_active: boolean

@@ -47,26 +47,27 @@ async def client():
 
 @pytest_asyncio.fixture
 async def admin_user(client: AsyncClient):
-    email = f"admin_{uuid.uuid4().hex[:8]}@test.com"
+    username = f"admin_{uuid.uuid4().hex[:8]}"
+    email = f"{username}@test.com"
     resp = await client.post(
         "/api/v1/auth/register",
-        json={"email": email, "display_name": "Admin", "password": "Admin1234"},
+        json={"username": username, "email": email, "display_name": "Admin", "password": "Admin1234"},
     )
     assert resp.status_code == 201
 
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
-        await conn.execute(update(User).where(User.email == email).values(role=UserRole.admin))
+        await conn.execute(update(User).where(User.username == username).values(role=UserRole.admin))
     await engine.dispose()
 
-    return type("AdminUser", (), {"email": email})()
+    return type("AdminUser", (), {"username": username, "email": email})()
 
 
 @pytest_asyncio.fixture
 async def admin_token(client: AsyncClient, admin_user):
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": admin_user.email, "password": "Admin1234"},
+        json={"username": admin_user.username, "password": "Admin1234"},
     )
     assert resp.status_code == 200
     return resp.json()["access_token"]
@@ -75,21 +76,22 @@ async def admin_token(client: AsyncClient, admin_user):
 @pytest_asyncio.fixture
 async def member_user(client: AsyncClient):
     """A plain (non-admin) registered user."""
-    email = f"member_{uuid.uuid4().hex[:8]}@test.com"
+    username = f"member_{uuid.uuid4().hex[:8]}"
+    email = f"{username}@test.com"
     resp = await client.post(
         "/api/v1/auth/register",
-        json={"email": email, "display_name": "Member", "password": "Member1234"},
+        json={"username": username, "email": email, "display_name": "Member", "password": "Member1234"},
     )
     assert resp.status_code == 201
     user_id = resp.json()["id"]
-    return type("MemberUser", (), {"email": email, "id": user_id})()
+    return type("MemberUser", (), {"username": username, "email": email, "id": user_id})()
 
 
 @pytest_asyncio.fixture
 async def member_token(client: AsyncClient, member_user):
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": member_user.email, "password": "Member1234"},
+        json={"username": member_user.username, "password": "Member1234"},
     )
     assert resp.status_code == 200
     return resp.json()["access_token"]
