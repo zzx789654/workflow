@@ -36,7 +36,7 @@ async def _ensure_superadmin() -> None:
         await db.commit()
 
 
-async def _auto_archive_loop() -> None:
+async def _auto_archive_loop() -> None:  # pragma: no cover - 無窮排程迴圈，核心 run_auto_archive 已另行單元測
     """每日 00:05 自動封存符合設定的已完成日常任務。"""
     from app.api.v1.endpoints.daily_tasks import run_auto_archive
 
@@ -60,7 +60,7 @@ async def _auto_archive_loop() -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI):  # pragma: no cover - 啟動/收尾序列，測試以 dependency override 跳過
     await _ensure_superadmin()
     task = asyncio.create_task(_auto_archive_loop())
     yield

@@ -94,7 +94,7 @@ async def toggle_reaction(
         db.add(reaction)
         try:
             await db.commit()
-        except IntegrityError:
+        except IntegrityError:  # pragma: no cover - 並發重複插入競態，難穩定觸發
             await db.rollback()
             raise HTTPException(status_code=409, detail="Reaction already exists")
         action = "added"

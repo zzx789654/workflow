@@ -84,7 +84,7 @@ async def spawn_next(
         raise HTTPException(status_code=400, detail="Task has no recurrence rule")
 
     # due_date 是 Date 欄位；可能為 date 物件或（歷史資料）ISO 字串，統一轉成 date。
-    if isinstance(task.due_date, str):
+    if isinstance(task.due_date, str):  # pragma: no cover - 歷史資料相容（現行 due_date 一律 date 物件）
         base_due = date.fromisoformat(task.due_date)
     elif isinstance(task.due_date, date):
         base_due = task.due_date

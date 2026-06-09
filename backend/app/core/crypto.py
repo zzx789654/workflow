@@ -8,7 +8,7 @@ from cryptography.fernet import Fernet, InvalidToken
 # Key loaded once at import time from environment.
 # If not set, generate a runtime-only key (secrets are not persisted securely between restarts).
 _raw_key = os.environ.get("SETTINGS_ENCRYPT_KEY", "")
-if _raw_key:
+if _raw_key:  # pragma: no cover - import-time 金鑰解析，由部署環境變數決定，測試固定走 else 分支
     # Validate and normalise: accept raw 32-byte hex or 44-char base64url
     try:
         if len(_raw_key) == 64:  # hex
