@@ -578,6 +578,7 @@
 - Sec（G3）：對照 OWASP A07 逐項；**發現並修正 1 個真實缺陷**（互斥鎖死，見教訓 57）。
 - QA（G4）：既有 10 個 auth 測試破口全修（其餘 300 經 conftest fixture 自動適配）；新增 test_auth_refactor.py 13 測試。全套 335 passed、覆蓋率 97%、ruff 全綠、前端 build 通過。
 - 過關狀態：G1✅ G2✅ G3✅ G4✅；G5（CI push）/G6（部署）待後續。
+- **後續調整（2026-06-09 同日）**：依使用者需求**開放 remote 帳號可升 admin**。原以「擋升 admin」防鎖死，但因 login 已不再強制 admin 走 local 密碼（admin 依自身 auth_source 驗證），remote admin 走目錄登入本就不會鎖死，故移除 users.py 守門。取捨：不再強制保留 local admin（使用者確認接受）。見教訓 59。
 
 ### 教訓 / 準則
 
@@ -597,3 +598,9 @@
 **教訓 58：重構登入鍵（email→username）時，先改 conftest fixture 能把散落改動降到最低**
 - 情境（G05）：登入鍵改 username 後，理論上所有需登入的測試都會壞。實際只破 10 個（全是直接打 /auth/login 的 auth 測試），其餘 300 個透過 conftest 的 admin_token/member_token fixture 自動適配。
 - **How to apply：** 認證/共用前置邏輯的大改，優先把變更收斂在 conftest fixture（單一真相來源），再跑全套看真正破口，逐檔修。別一開始就散彈打所有測試檔。
+
+**教訓 59：防「升 admin 鎖死」要解在登入邏輯，不是靠擋升級**
+- 情境（G05 後續）：最初為防鎖死，禁止 remote 帳號升 admin。但使用者要 remote 也能當 admin。
+- 根因辨析：鎖死的真正成因是舊的 **admin-always-local** 規則（強制 admin 走本地密碼，而 remote 帳號的本地密碼是 placeholder）。一旦移除這條規則、讓 admin 依自身 auth_source 驗證，remote admin 走目錄登入本就不會鎖死——「擋升 admin」其實是在治標。
+- 準則：限制「誰能變成什麼角色」是治標；把登入路徑設計成「任何合法帳號（不分角色/來源）都有可用的驗證方式」才是治本。先確認根因消失，再放寬限制。
+- 取捨記錄：開放後不再強制保留 local admin，若所有 admin 皆 remote 且目錄中斷，期間無 admin 可登入。此為使用者明確接受的可用性取捨——這類「逃生門」決策應由使用者拍板，並在 code 註解 + lessons 留痕。

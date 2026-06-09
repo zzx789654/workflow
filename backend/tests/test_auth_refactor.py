@@ -143,19 +143,25 @@ async def test_register_conflicts_with_remote_username(client: AsyncClient, admi
     assert resp.status_code == 400
 
 
-# ── remote 帳號不可升 admin（防鎖死）────────────────────────────
+# ── remote 帳號可升 admin，且升級後仍能透過 remote 登入（不鎖死）──
 @pytest.mark.asyncio
-async def test_remote_user_cannot_be_promoted_to_admin(client: AsyncClient, admin_token: str, monkeypatch):
+async def test_remote_user_can_be_promoted_to_admin_and_still_login(
+    client: AsyncClient, admin_token: str, monkeypatch
+):
     await _set_backend_ldap(client, admin_token)
     _install_fake_ldap(monkeypatch, email="carol@corp.com")
     login = await client.post("/api/v1/auth/login", json={"username": "carol", "password": "pw"})
     carol_id = (await client.get("/api/v1/users/me", headers=_auth(login.json()["access_token"]))).json()["id"]
-    # admin tries to promote remote user -> 400
+    # admin promotes remote user to admin -> 200（已開放）
     resp = await client.patch(f"/api/v1/users/{carol_id}/role?role=admin", headers=_auth(admin_token))
-    assert resp.status_code == 400
-    # promoting to non-admin role is fine
-    ok = await client.patch(f"/api/v1/users/{carol_id}/role?role=viewer", headers=_auth(admin_token))
-    assert ok.status_code == 200
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "admin"
+    # 核心驗證：升為 admin 後，remote 帳號仍可透過目錄登入（login 不強制 admin 走 local）
+    relogin = await client.post("/api/v1/auth/login", json={"username": "carol", "password": "pw"})
+    assert relogin.status_code == 200
+    me = await client.get("/api/v1/users/me", headers=_auth(relogin.json()["access_token"]))
+    assert me.json()["role"] == "admin"
+    assert me.json()["auth_source"] == "ldap"
 
 
 # ── email 僅 local 可改 ────────────────────────────────────────

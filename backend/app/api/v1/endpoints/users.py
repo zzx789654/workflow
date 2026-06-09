@@ -46,10 +46,10 @@ async def update_user_role(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    # 防鎖死：admin 走 remote-first fallback local，remote 帳號無可用本地密碼，
-    # 一旦升為 admin 將永久無法登入（remote 不被視為 admin 逃生門）。從根本擋下。
-    if role == UserRole.admin and user.auth_source != "local":
-        raise HTTPException(status_code=400, detail="遠端帳號不可設為管理者，請改用本地帳號")
+    # remote 帳號可升 admin：login 不再強制 admin 走 local 密碼，admin 依其 auth_source
+    # 正常驗證（remote admin 走目錄、local admin 走本地），故升 admin 不會鎖死。
+    # 注意：未強制保留 local admin，若所有 admin 皆為 remote 且目錄服務中斷，
+    # 期間將無人能以 admin 身分登入（已與使用者確認接受此取捨）。
     user.role = role
     await db.commit()
     await db.refresh(user)
