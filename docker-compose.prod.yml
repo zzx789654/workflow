@@ -1,0 +1,104 @@
+# WorkFlow production 部署：nginx(HTTPS) 為唯一對外入口，DB/Redis/backend 不對外暴露。
+# 用法：docker compose -f docker-compose.prod.yml up -d --build
+# 由 install.sh 一鍵部署；憑證放在 certs_data volume，可經前端設定頁熱更換。
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-workflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-workflow_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-workflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # 不對外開 port（僅 compose 內網可達）
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # 不對外開 port
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-workflow}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-workflow_db}
+      REDIS_URL: redis://redis:6379/0
+      APP_ENV: production
+      # 憑證寫入目錄（與 nginx 共用 certs_data volume）
+      TLS_CERT_DIR: /certs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - uploads_data:/app/uploads
+      - certs_data:/certs
+    # production：無 --reload、不掛 source；先跑 migration 再起服務
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
+    # 不對外開 port，由 nginx 反向代理
+
+  nginx:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        # 同源部署：前端走相對路徑 /api 與同源 wss，不寫死後端位址
+        VITE_API_URL: ""
+        VITE_WS_URL: ""
+    container_name: workflow-nginx
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - certs_data:/etc/nginx/certs:ro
+
+  # 極小 sidecar：監看 certs 變更 → 熱重載 nginx（HUP）。
+  # 權限隔離：只有這個容器掛 docker.sock，backend/app 不碰（最小權限）。
+  reloader:
+    image: docker:cli
+    restart: unless-stopped
+    depends_on:
+      - nginx
+    volumes:
+      - certs_data:/certs:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        apk add --no-cache inotify-tools >/dev/null 2>&1;
+        echo "reloader: watching /certs for changes";
+        while inotifywait -e close_write,moved_to,create /certs 2>/dev/null; do
+          echo "reloader: cert change detected, reloading nginx";
+          docker kill -s HUP workflow-nginx || true;
+        done
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
+  certs_data:

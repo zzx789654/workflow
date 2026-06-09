@@ -186,3 +186,40 @@ async def test_radius(
     if not ok:
         raise HTTPException(status_code=401, detail="RADIUS authentication failed")
     return {"ok": True}
+
+
+# ── TLS 憑證管理（Admin only）─────────────────────────────────
+class TlsCertUpload(BaseModel):
+    cert: str  # PEM 憑證（含 BEGIN CERTIFICATE）
+    key: str  # PEM 私鑰（未加密）
+
+
+@router.get("/tls-cert", status_code=200)
+async def get_tls_cert(_: User = Depends(require_admin)):
+    """回傳目前部署中的 TLS 憑證資訊（不含私鑰）。無憑證回 configured=false。"""
+    from app.core.tls_cert import current_cert_metadata
+
+    meta = current_cert_metadata()
+    if meta is None:
+        return {"configured": False}
+    return {"configured": True, **meta}
+
+
+@router.post("/tls-cert", status_code=200)
+async def upload_tls_cert(body: TlsCertUpload, _: User = Depends(require_admin)):
+    """上傳並套用新的 TLS 憑證（admin only）。
+
+    驗證 cert/key 相符且未過期後原子寫入 certs volume；reloader sidecar 會自動
+    熱重載 nginx。私鑰不回傳、不記入 log。
+    """
+    from app.core.tls_cert import CertValidationError, write_cert
+
+    try:
+        meta = write_cert(body.cert.encode(), body.key.encode())
+    except CertValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except OSError:
+        logger.error("upload_tls_cert: failed to write cert files")
+        raise HTTPException(status_code=500, detail="憑證寫入失敗，請確認部署環境") from None
+    logger.info("TLS cert updated: cn=%s expires=%s", meta.get("subject_cn"), meta.get("not_after"))
+    return {"ok": True, **meta}

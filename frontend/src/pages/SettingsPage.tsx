@@ -243,6 +243,20 @@ const systemSettingsApi = {
     api.post('/system-settings/test-ldap', { username, password }),
   testRadius: (username: string, password: string) =>
     api.post('/system-settings/test-radius', { username, password }),
+  getTlsCert: () => api.get<TlsCertInfo>('/system-settings/tls-cert'),
+  uploadTlsCert: (cert: string, key: string) =>
+    api.post<TlsCertInfo>('/system-settings/tls-cert', { cert, key }),
+}
+
+type TlsCertInfo = {
+  configured?: boolean
+  ok?: boolean
+  subject_cn?: string
+  issuer_cn?: string
+  not_before?: string
+  not_after?: string
+  is_self_signed?: boolean
+  is_expired?: boolean
 }
 
 type SettingRow = { key: string; value: string; is_secret: boolean }
@@ -374,7 +388,8 @@ function SystemConfigTab() {
   const authBackend = draft['auth_backend'] ?? 'local'
 
   return (
-    <form onSubmit={handleSave} className="max-w-2xl space-y-6">
+    <div className="max-w-2xl space-y-6">
+      <form onSubmit={handleSave} className="space-y-6">
 
       {/* 一般設定 */}
       <section>
@@ -434,7 +449,93 @@ function SystemConfigTab() {
           <p className={`text-sm ${saveMsg.includes('成功') ? 'text-green-600' : 'text-red-500'}`}>{saveMsg}</p>
         )}
       </div>
-    </form>
+      </form>
+
+      <TlsCertSection />
+    </div>
+  )
+}
+
+// ── TLS 憑證管理區（HTTPS 部署用，Admin only）─────────────────
+function TlsCertSection() {
+  const [info, setInfo] = useState<TlsCertInfo | null>(null)
+  const [cert, setCert] = useState('')
+  const [key, setKey] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  const load = async () => {
+    try {
+      const r = await systemSettingsApi.getTlsCert()
+      setInfo(r.data)
+    } catch { /* 非 prod 環境可能無憑證端點資料，忽略 */ }
+  }
+  useEffect(() => { load() }, [])
+
+  const readFile = (file: File, set: (v: string) => void) => {
+    const reader = new FileReader()
+    reader.onload = () => set(String(reader.result ?? ''))
+    reader.readAsText(file)
+  }
+
+  const handleUpload = async () => {
+    if (!cert || !key) { setMsg('請提供憑證與私鑰'); return }
+    setSaving(true); setMsg('')
+    try {
+      const r = await systemSettingsApi.uploadTlsCert(cert, key)
+      setInfo(r.data)
+      setCert(''); setKey('')
+      setMsg('已套用，nginx 重載中，約 5 秒後新憑證生效')
+    } catch (err: any) {
+      setMsg(err?.response?.data?.detail ?? '套用失敗')
+    } finally { setSaving(false) }
+  }
+
+  const fmt = (s?: string) => (s ? new Date(s).toLocaleString() : '—')
+
+  return (
+    <div className="border-t border-gray-100 pt-5 space-y-4">
+      <h3 className="text-sm font-semibold text-gray-700">TLS 憑證（HTTPS）</h3>
+
+      {info?.configured ? (
+        <div className="bg-gray-50 rounded-xl p-4 text-sm space-y-1">
+          <p><span className="text-gray-500">主體 CN：</span>{info.subject_cn || '—'}</p>
+          <p><span className="text-gray-500">有效期：</span>{fmt(info.not_before)} ~ {fmt(info.not_after)}</p>
+          <p>
+            <span className="text-gray-500">類型：</span>
+            {info.is_self_signed
+              ? <span className="text-amber-600">自簽憑證（瀏覽器會顯示安全告警）</span>
+              : <span className="text-green-600">已簽署憑證</span>}
+            {info.is_expired && <span className="text-red-500 ml-2">（已過期）</span>}
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs text-gray-400">尚未取得憑證資訊（僅在 HTTPS 部署環境可用）。</p>
+      )}
+
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">憑證檔（cert.pem）</label>
+          <input type="file" accept=".pem,.crt,.cert" className="text-sm"
+            onChange={e => e.target.files?.[0] && readFile(e.target.files[0], setCert)} />
+          <textarea className="input w-full mt-1 font-mono text-xs" rows={3}
+            placeholder="-----BEGIN CERTIFICATE-----" value={cert} onChange={e => setCert(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">私鑰檔（key.pem，未加密）</label>
+          <input type="file" accept=".pem,.key" className="text-sm"
+            onChange={e => e.target.files?.[0] && readFile(e.target.files[0], setKey)} />
+          <textarea className="input w-full mt-1 font-mono text-xs" rows={3}
+            placeholder="-----BEGIN PRIVATE KEY-----" value={key} onChange={e => setKey(e.target.value)} />
+        </div>
+        <button type="button" onClick={handleUpload} disabled={saving || !cert || !key} className="btn-primary text-sm">
+          {saving ? '套用中…' : '上傳並套用憑證'}
+        </button>
+        {msg && (
+          <p className={`text-sm ${msg.includes('生效') ? 'text-green-600' : 'text-red-500'}`}>{msg}</p>
+        )}
+      </div>
+    </div>
   )
 }
 

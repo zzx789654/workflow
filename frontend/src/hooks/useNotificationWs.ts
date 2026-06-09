@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useNotificationStore } from '../stores/notificationStore'
-
-const WS_BASE = (import.meta.env.VITE_WS_URL as string) || 'ws://localhost:8000'
+import { wsBase } from '../lib/ws'
 
 export function useNotificationWs() {
   const bump = useNotificationStore((s) => s.bump)
@@ -12,7 +11,7 @@ export function useNotificationWs() {
     if (!token) return
 
     const connect = () => {
-      const ws = new WebSocket(`${WS_BASE}/ws/notifications?token=${encodeURIComponent(token)}`)
+      const ws = new WebSocket(`${wsBase()}/ws/notifications?token=${encodeURIComponent(token)}`)
       wsRef.current = ws
 
       ws.onmessage = (e) => {

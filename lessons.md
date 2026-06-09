@@ -643,3 +643,26 @@
 - 情境（G06 FIND-S3）：register 讀 `allow_registration` 設定，DB 查詢 `except Exception` 時回退 `"true"`——DB 異常時反而放任註冊（fail-open），攻擊者可趁 DB 不穩時灌帳號。
 - 準則：區分「設定未設定」（正常業務，可給安全預設）與「查詢拋例外」（異常，應 fail-closed）。前者 row=None 回預設 OK；後者 except 應拒絕（503）+ 記 error，而非沿用寬鬆預設。
 - 反例對照：同檔 `_get_auth_backend` 失敗回退 `local` 是 fail-closed（local 只走本地密碼、不會誤連目錄、不放行任何人），這個回退是對的——**回退方向是否安全要逐案判斷，不是「有回退」就好**。
+
+---
+
+## 2026-06-10 輪結 Round G07 — Ubuntu 24.04 一鍵部署 + HTTPS + 前端憑證管理
+
+### 本輪紀錄
+- CD 範疇：prod compose（nginx HTTPS 唯一入口、DB/Redis 不暴露）、install.sh（Ubuntu 24.04 一鍵）、前端設定頁熱換 TLS 憑證（後端驗證+原子寫入、reloader sidecar reload nginx）。
+- 後端 338 passed / 97%；test_tls_cert.py 9 測試；前端 build 過；install.sh shellcheck 0；compose config OK；三道 CI gate 本地全綠。
+- 安全延續 G06：docker.sock 只給隔離 sidecar、憑證固定檔名防遍歷、私鑰 0600 不回傳不入 log。
+- 已知：install.sh + 完整 prod compose 需目標 Ubuntu 實機驗證（開發機 Windows 僅能元件級驗證）。
+
+### 教訓 / 準則
+
+**教訓 64：要讓 web app 觸發基礎設施動作（reload nginx），用隔離 sidecar，別把 docker.sock 掛進 app 容器**
+- 情境（G07）：前端上傳憑證後要 reload nginx。最直覺做法是讓 backend 容器掛 docker.sock 去 `docker kill -s HUP nginx`——但那等於給整個 app 對 Docker daemon 的完全控制（= 對 host 的 root），一旦 app 有 RCE 就直通宿主機。
+- 解法：backend 只負責**驗證 + 把憑證寫入共用 volume**；另起一個**極小 reloader sidecar**（唯一掛 docker.sock）用 inotify 監看 volume 變更 → 觸發 reload。權限隔離在 sidecar，app/backend 維持最小權限。
+- 準則：跨容器/對 host 的特權動作，用「最小權限的專責 sidecar + 檔案/訊號解耦」，不要把特權 socket 交給面向使用者輸入的服務。這延續 G06 的最小權限原則到部署層。
+- **How to apply：** 看到「app 容器要掛 docker.sock / 特權 capability」就停下來問：能不能用共享 volume + 獨立 watcher 解耦？通常可以。
+
+**教訓 65：HTTPS 部署的 WebSocket URL 要 runtime 動態組（wss://host），不能 build-time 寫死**
+- 情境（G07）：前端 WS hook 原本 `VITE_WS_URL || 'ws://localhost:8000'` 寫死。同源 HTTPS 部署時這會連到錯的 host 且用了不安全的 ws://。
+- 解法：抽 `wsBase()`——VITE_WS_URL 未設時依 `window.location.protocol` 動態組 `wss://`/`ws://` + `window.location.host`。build 時不需知道部署網域，HTTPS 自動升級 wss。
+- **How to apply：** 同源部署的前端，API 走相對路徑即可（axios baseURL `/api`），但 **WebSocket 不支援相對 URL**，必須 runtime 用 `window.location` 組絕對 wss URL。
