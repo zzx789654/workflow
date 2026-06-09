@@ -611,3 +611,10 @@
 - 修復：format 補跑；`.gitleaks.toml` 把 placeholder 密碼加 allowlist，並把測試檔 path 從逐檔列舉改成 regex `backend/tests/test_.*\.py`（治本：未來新測試檔不再誤判）。
 - **How to apply：** push 前在本地把 CI 的每一道 gate 都跑過一遍：`ruff check` **和** `ruff format --check`、gitleaks（`docker run zricethezav/gitleaks detect --config=.gitleaks.toml`）、pytest。新增測試檔若含 placeholder 密碼，先確認在 gitleaks allowlist 內。CI 紅燈時先把失敗 job/step 的真實 log 拉出來看（GitHub API `/actions/runs/{id}/jobs`），不要猜。
 - 補充：secret scan 的誤判要用 allowlist 修「誤判」，不是放寬偵測；真實密鑰外洩則必須輪替金鑰、清歷史，兩者處理方式完全不同，先分清是哪一種。
+
+**教訓 61：寫死的檔案系統路徑（UPLOAD_DIR=/app/uploads）在 CI 會炸，測試要重導到 tmp_path（G5 第二次退回）**
+- 情境（G05 第二輪 CI）：format/gitleaks 修好後，CI 後端測試換成 5 個 attachment 上傳測試炸掉——`PermissionError: [Errno 13] Permission denied: '/app'`。`UPLOAD_DIR` 預設 `/app/uploads`，這在 Docker dev 容器是 mount 的 volume 才存在；CI runner 的 `/app` 不存在且不可寫，`mkdir(parents=True)` 一路往上建到 `/app` 就撞權限牆。
+- 根因：本地能過是因為容器剛好有可寫的 `/app/uploads`；測試**隱性依賴了環境特定的路徑**。本地過 ≠ CI 過（同教訓 53 家族：環境差異）。額外證據——dev 容器的 `/app/uploads` 累積了 95 個歷史測試遺留目錄，正說明測試一直在污染真實 volume。
+- 修復：conftest 加 autouse fixture `monkeypatch.setattr(attachments, "UPLOAD_DIR", tmp_path/"uploads")`，把上傳導到 pytest 暫存目錄。CI/本地都可寫、零殘留。
+- 驗證手法：清空 `/app/uploads` → 跑上傳測試 → 確認它仍是 0 entry，證明測試確實不再碰真實路徑（而非靠該路徑存在才過）。
+- **How to apply：** 任何寫檔/建目錄的功能，測試一律把目標路徑重導到 `tmp_path`，別讓測試依賴 `/app`、`/data` 等部署期才存在的路徑。寫死路徑的模組常數要嘛可由 env 覆寫、要嘛在測試 monkeypatch 掉。
