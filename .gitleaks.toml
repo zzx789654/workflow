@@ -12,6 +12,10 @@ regexes = [
   "Admin1234",
   "E2ETest1234",
   "Secure1234",
+  "NewStrong123",
+  "NewPass5678",
+  "Local1234",
+  "Member1234",
   "dev_secret_key_change_in_production",
   "workflow_pass",
 ]
@@ -21,8 +25,8 @@ paths = [
   "backend/app/core/config.py",
   "tests/conftest.py",
   "backend/tests/conftest.py",
-  "backend/tests/test_auth.py",
-  "backend/tests/test_projects.py",
+  # 測試檔內的密碼皆為假資料 placeholder，非真實密鑰
+  '''backend/tests/test_.*\.py''',
   ".github/workflows/cd.yml",
   ".github/workflows/ci.yml",
 ]

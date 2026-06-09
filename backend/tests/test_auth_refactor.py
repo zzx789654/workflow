@@ -1,7 +1,7 @@
 """G05 認證重構 — 完整分支 + G3 資安確認（OWASP A07 認證失效）。
 
 涵蓋：remote-first fallback local、來源互斥、auto-provision、email 帶入、
-remote 不可升 admin（防鎖死）、email 僅 local 可改、admin 走 remote-first。
+remote 可升 admin（升級後仍能登入、不鎖死）、email 僅 local 可改、admin 走 remote-first。
 """
 
 import sys
@@ -145,9 +145,7 @@ async def test_register_conflicts_with_remote_username(client: AsyncClient, admi
 
 # ── remote 帳號可升 admin，且升級後仍能透過 remote 登入（不鎖死）──
 @pytest.mark.asyncio
-async def test_remote_user_can_be_promoted_to_admin_and_still_login(
-    client: AsyncClient, admin_token: str, monkeypatch
-):
+async def test_remote_user_can_be_promoted_to_admin_and_still_login(client: AsyncClient, admin_token: str, monkeypatch):
     await _set_backend_ldap(client, admin_token)
     _install_fake_ldap(monkeypatch, email="carol@corp.com")
     login = await client.post("/api/v1/auth/login", json={"username": "carol", "password": "pw"})
