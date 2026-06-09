@@ -1,11 +1,13 @@
 import os
 import uuid
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+import app.api.v1.endpoints.attachments as _attachments_module
 import app.api.v1.endpoints.auth as _auth_module
 from app.db.session import Base, get_db
 from app.main import app
@@ -20,6 +22,18 @@ TEST_DB_URL = os.environ.get(
 # Disable rate limiting entirely in tests so no 429 is raised.
 _auth_module.limiter.enabled = False
 _main_limiter.enabled = False
+
+
+@pytest.fixture(autouse=True)
+def _redirect_upload_dir(tmp_path, monkeypatch):
+    """Point attachment storage at a writable temp dir.
+
+    UPLOAD_DIR defaults to /app/uploads, which exists (as a volume) only in the
+    Docker dev container. On CI the runner's /app is absent and unwritable, so
+    upload tests fail with PermissionError. Redirect to pytest's tmp_path so the
+    tests are portable and leave no files behind.
+    """
+    monkeypatch.setattr(_attachments_module, "UPLOAD_DIR", tmp_path / "uploads")
 
 
 @pytest_asyncio.fixture

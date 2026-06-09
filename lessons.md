@@ -604,3 +604,10 @@
 - 根因辨析：鎖死的真正成因是舊的 **admin-always-local** 規則（強制 admin 走本地密碼，而 remote 帳號的本地密碼是 placeholder）。一旦移除這條規則、讓 admin 依自身 auth_source 驗證，remote admin 走目錄登入本就不會鎖死——「擋升 admin」其實是在治標。
 - 準則：限制「誰能變成什麼角色」是治標；把登入路徑設計成「任何合法帳號（不分角色/來源）都有可用的驗證方式」才是治本。先確認根因消失，再放寬限制。
 - 取捨記錄：開放後不再強制保留 local admin，若所有 admin 皆 remote 且目錄中斷，期間無 admin 可登入。此為使用者明確接受的可用性取捨——這類「逃生門」決策應由使用者拍板，並在 code 註解 + lessons 留痕。
+
+**教訓 60：push 前要在本地跑齊「CI 的每一道 gate」，不是只跑常用的那幾道（G5 退回）**
+- 情境（G05 push 後）：本地只跑了 `ruff check` + pytest 就 push，CI 卻被兩道 gate 擋下——(1) `ruff format --check` 抓到一個改完沒 format 的測試檔；(2) gitleaks 抓到測試裡的 placeholder 密碼 `NewStrong123`（早在 G04 commit e63a156 引入，但前次 CI 也 fail 一直沒處理，累積到這次爆）。
+- 根因：本地驗證集合 ≠ CI gate 集合。`ruff check`（lint）與 `ruff format --check`（格式）是兩件事；secret scan 本地根本沒跑。
+- 修復：format 補跑；`.gitleaks.toml` 把 placeholder 密碼加 allowlist，並把測試檔 path 從逐檔列舉改成 regex `backend/tests/test_.*\.py`（治本：未來新測試檔不再誤判）。
+- **How to apply：** push 前在本地把 CI 的每一道 gate 都跑過一遍：`ruff check` **和** `ruff format --check`、gitleaks（`docker run zricethezav/gitleaks detect --config=.gitleaks.toml`）、pytest。新增測試檔若含 placeholder 密碼，先確認在 gitleaks allowlist 內。CI 紅燈時先把失敗 job/step 的真實 log 拉出來看（GitHub API `/actions/runs/{id}/jobs`），不要猜。
+- 補充：secret scan 的誤判要用 allowlist 修「誤判」，不是放寬偵測；真實密鑰外洩則必須輪替金鑰、清歷史，兩者處理方式完全不同，先分清是哪一種。
