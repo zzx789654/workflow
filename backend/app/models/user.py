@@ -31,6 +31,8 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     auto_archive_days: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # 提高此值即令該使用者所有既發 token 失效（改密碼/登出時 +1）
+    token_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

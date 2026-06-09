@@ -6,7 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import decode_token  # noqa: E402
+from app.core.security import decode_token_payload  # noqa: E402
 from app.db.session import get_db  # noqa: E402
 from app.models.project import ProjectMember, ProjectRole  # noqa: E402
 from app.models.user import User, UserRole  # noqa: E402
@@ -24,7 +24,8 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     token = credentials.credentials
-    user_id = decode_token(token)
+    payload = decode_token_payload(token)
+    user_id = str(payload["sub"]) if payload and payload.get("sub") else None
     if not user_id:
         logger.warning("Auth failed: invalid token")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
@@ -37,6 +38,10 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+    # token_version 不符 → 該 token 已因改密碼/登出失效
+    if payload.get("tv", 0) != user.token_version:
+        logger.warning("Auth failed: stale token_version for user=%s", user_id)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
     return user
 
 

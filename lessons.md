@@ -618,3 +618,28 @@
 - 修復：conftest 加 autouse fixture `monkeypatch.setattr(attachments, "UPLOAD_DIR", tmp_path/"uploads")`，把上傳導到 pytest 暫存目錄。CI/本地都可寫、零殘留。
 - 驗證手法：清空 `/app/uploads` → 跑上傳測試 → 確認它仍是 0 entry，證明測試確實不再碰真實路徑（而非靠該路徑存在才過）。
 - **How to apply：** 任何寫檔/建目錄的功能，測試一律把目標路徑重導到 `tmp_path`，別讓測試依賴 `/app`、`/data` 等部署期才存在的路徑。寫死路徑的模組常數要嘛可由 env 覆寫、要嘛在測試 monkeypatch 掉。
+
+---
+
+## 2026-06-09 輪結 Round G06 — 後端完整資安檢視（OWASP Top 10:2025）
+
+### 本輪紀錄
+- DevSecOps Sec 子流程：對照 OWASP Top 10 全 10 類 + 機密管理人工審查 backend/app，搭配 CI 既有 Semgrep(SAST)/pip-audit/npm audit(SCA)。
+- 結果：**Critical=0 / High=0 / Medium=0**，4 個 Low/Info finding（皆非阻斷）。資安 Exit Criteria 達標。
+- 正向確認：全 ORM 參數化（零 SQLi）、附件用 uuid 檔名防路徑遍歷、IDOR 全端點以 user_id 過濾、bcrypt+JWT、密鑰 Fernet 加密、log 不洩敏感值。
+- 依使用者決定修 3 個 finding：S1（change-password 限流）、S2（token_version 失效機制，migration 018）、S3（register fail-closed）。S4（LLM prompt injection）接受為殘餘風險。
+- 驗證：test_security_hardening.py + 既有 auth 全綠，329 passed/97%，三道 CI gate 本地皆綠。
+
+### 教訓 / 準則
+
+**教訓 62：JWT 無狀態 token 要「可撤銷」，最輕量解法是 token_version 欄位**
+- 情境（G06 FIND-S2）：純 JWT（只含 sub/exp）無法做登出/改密碼即時失效——舊 token 在到期前一直有效，是 A07 常見弱點。
+- 解法：User 加 `token_version`（int, default 0）；簽 token 時把它寫進 payload（`tv`）；驗證時比對 `payload.tv == user.token_version`；要撤銷該使用者所有 token 就 `token_version += 1`。比「黑名單 + Redis」輕量，不需額外基礎設施。
+- **關鍵盲點**：改完 `get_current_user` 還不夠——**refresh 端點也必須驗 tv**，否則舊 refresh token 能一直換新 access token，S2 形同虛設。凡是「拿 token 換身分/換 token」的入口都要驗。
+- 取捨：WebSocket 等長連線若不接 DB，可選擇不驗 tv（連線短、唯讀則風險低），但要明確記為殘餘風險，不是默默略過。
+- **How to apply：** 任何用無狀態 JWT 的系統，登出/改密碼/停權需求一出現，優先考慮 token_version；盤點所有「消費 token」的入口（API deps、refresh、WebSocket、SSE）逐一確認都驗版本。
+
+**教訓 63：fail-open vs fail-closed 要看「失敗時偏向開放還是關閉」，安全敏感路徑預設 fail-closed**
+- 情境（G06 FIND-S3）：register 讀 `allow_registration` 設定，DB 查詢 `except Exception` 時回退 `"true"`——DB 異常時反而放任註冊（fail-open），攻擊者可趁 DB 不穩時灌帳號。
+- 準則：區分「設定未設定」（正常業務，可給安全預設）與「查詢拋例外」（異常，應 fail-closed）。前者 row=None 回預設 OK；後者 except 應拒絕（503）+ 記 error，而非沿用寬鬆預設。
+- 反例對照：同檔 `_get_auth_backend` 失敗回退 `local` 是 fail-closed（local 只走本地密碼、不會誤連目錄、不放行任何人），這個回退是對的——**回退方向是否安全要逐案判斷，不是「有回退」就好**。

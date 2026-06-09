@@ -8,7 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
-from app.core.security import create_access_token, create_refresh_token, decode_token, hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token_payload,
+    hash_password,
+    verify_password,
+)
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.user import LoginRequest, Token, UserCreate, UserOut
@@ -21,7 +27,9 @@ limiter = Limiter(key_func=get_remote_address)
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 async def register(request: Request, body: UserCreate, db: AsyncSession = Depends(get_db)):
-    # Check allow_registration system setting
+    # Check allow_registration system setting.
+    # 未設定（row=None）視為預設開放（正常業務）；但若查詢「拋例外」則 fail-closed，
+    # 避免 DB 異常時誤放開註冊（安全優先於可用）。
     try:
         from app.models.system_setting import SystemSetting
 
@@ -29,7 +37,8 @@ async def register(request: Request, body: UserCreate, db: AsyncSession = Depend
         row = r.scalar_one_or_none()
         allow = (row.value if row else None) or "true"
     except Exception:
-        allow = "true"
+        logger.error("register: failed to read allow_registration setting; denying registration (fail-closed)")
+        raise HTTPException(status_code=503, detail="註冊服務暫時不可用，請稍後再試") from None
 
     if allow.lower() not in ("true", "1", "yes"):
         raise HTTPException(status_code=403, detail="自行註冊已關閉，請聯絡管理員開通帳號")
@@ -60,6 +69,8 @@ async def _get_auth_backend(db) -> str:
         row = r.scalar_one_or_none()
         return (row.value if row else None) or "local"
     except Exception:
+        # 回退 local 是安全選擇（只會走本地密碼，不會誤連目錄服務）；但仍記錄異常
+        logger.error("_get_auth_backend: failed to read auth_backend setting; falling back to local")
         return "local"
 
 
@@ -164,8 +175,8 @@ async def login(request: Request, body: LoginRequest, db: AsyncSession = Depends
 
     logger.info("Login success backend=%s user=%s", auth_backend, body.username)
     return Token(
-        access_token=create_access_token(str(user.id)),
-        refresh_token=create_refresh_token(str(user.id)),
+        access_token=create_access_token(str(user.id), user.token_version),
+        refresh_token=create_refresh_token(str(user.id), user.token_version),
     )
 
 
@@ -174,8 +185,10 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=8, max_length=128)
 
 
-@router.post("/change-password", status_code=200)
+@router.post("/change-password", response_model=Token, status_code=200)
+@limiter.limit("5/minute")
 async def change_password(
+    request: Request,
     body: ChangePasswordRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -183,13 +196,20 @@ async def change_password(
     if not verify_password(body.old_password, current_user.hashed_password):
         raise HTTPException(status_code=400, detail="目前密碼不正確")
     current_user.hashed_password = hash_password(body.new_password)
+    # 提高 token_version 使所有既發 token 失效；回傳一組新 token 讓本次操作的客戶端續用
+    current_user.token_version += 1
     await db.commit()
-    return {"ok": True}
+    await db.refresh(current_user)
+    return Token(
+        access_token=create_access_token(str(current_user.id), current_user.token_version),
+        refresh_token=create_refresh_token(str(current_user.id), current_user.token_version),
+    )
 
 
 @router.post("/refresh", response_model=Token)
 async def refresh(refresh_token: str, db: AsyncSession = Depends(get_db)):
-    user_id = decode_token(refresh_token, expected_type="refresh")
+    payload = decode_token_payload(refresh_token, expected_type="refresh")
+    user_id = str(payload["sub"]) if payload and payload.get("sub") else None
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
     import uuid
@@ -198,7 +218,10 @@ async def refresh(refresh_token: str, db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    # 改密碼/登出後舊 refresh token 失效
+    if payload.get("tv", 0) != user.token_version:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
     return Token(
-        access_token=create_access_token(str(user.id)),
-        refresh_token=create_refresh_token(str(user.id)),
+        access_token=create_access_token(str(user.id), user.token_version),
+        refresh_token=create_refresh_token(str(user.id), user.token_version),
     )
