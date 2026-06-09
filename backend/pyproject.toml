@@ -24,3 +24,9 @@ indent-style = "space"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+# async endpoints run inside anyio/greenlet tasks; without these concurrency
+# backends coverage under-counts lines executed during ASGITransport requests.
+concurrency = ["greenlet", "thread"]
+source = ["app"]

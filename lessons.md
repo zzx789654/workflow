@@ -558,3 +558,11 @@
 - 情境：Task.due_date 欄位在 ORM 中定義為 VARCHAR，PostgreSQL 不允許 `VARCHAR >= DATE`
 - 準則：`cast(Task.due_date, Date)` 或 `.due_date.cast(Date)` 顯式轉型；或在 migration 時改欄位型別為 DATE
 - **How to apply：** 所有以字串儲存日期的欄位，在比較前都要 cast
+
+**教訓 55：async FastAPI 專案的 coverage 必須開 greenlet concurrency，否則嚴重低估**
+- 情境（G04，2026-06-09）：測試成功打 200/201 進到 endpoint，coverage 卻把整段 handler body 標為未覆蓋，TOTAL 卡在 67%；逐模組補測後數字幾乎不動。
+- 根因：endpoint body 在 anyio/greenlet task 內執行（ASGITransport + async SQLAlchemy），coverage.py 預設 `concurrency=thread` 無法追蹤 greenlet 切換內執行的行 → 大量成功路徑被誤判未覆蓋。
+- 修復：`pyproject.toml` 加 `[tool.coverage.run] concurrency = ["greenlet", "thread"]`（greenlet 已是 SQLAlchemy[asyncio] 依賴，無需額外安裝）。加上後同一套測試 67% → 91%。
+- **Why：** 67% 是量測假象不是真實缺口；沒先修設定就盲目補測會浪費大量工。
+- **How to apply：** 任何 async + SQLAlchemy[asyncio] 專案，設 CI coverage gate 前先確認 `[tool.coverage.run].concurrency` 含 greenlet；補了測試覆蓋率卻不動，第一個懷疑這個。（同集團 prompt-monitor commit 6aa925b 踩過同坑。）
+- 配套：先刪可確認的 dead code（本輪刪 `schemas/milestone.py`、`projects.require_project_role`，grep 全庫零引用）再算覆蓋率，分母更乾淨。

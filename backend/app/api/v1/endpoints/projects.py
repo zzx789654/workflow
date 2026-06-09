@@ -32,23 +32,6 @@ async def get_project_or_404(project_id: uuid.UUID, db: AsyncSession) -> Project
     return project
 
 
-async def require_project_role(
-    project_id: uuid.UUID, user: User, db: AsyncSession, min_role: ProjectRole = ProjectRole.viewer
-) -> ProjectMember:
-    role_order = [ProjectRole.viewer, ProjectRole.member, ProjectRole.manager, ProjectRole.owner]
-    result = await db.execute(
-        select(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.user_id == user.id)
-    )
-    membership = result.scalar_one_or_none()
-    if user.role.value == "admin":
-        return membership
-    if not membership:
-        raise HTTPException(status_code=403, detail="Not a project member")
-    if role_order.index(membership.role) < role_order.index(min_role):
-        raise HTTPException(status_code=403, detail="Insufficient project role")
-    return membership
-
-
 @router.post("/", response_model=ProjectOut, status_code=201)
 async def create_project(
     body: ProjectCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)

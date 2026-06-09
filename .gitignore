@@ -10,3 +10,6 @@ dist/
 *.log
 postgres_data/
 redis_data/
+.coverage
+coverage.xml
+htmlcov/
