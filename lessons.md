@@ -666,3 +666,121 @@
 - 情境（G07）：前端 WS hook 原本 `VITE_WS_URL || 'ws://localhost:8000'` 寫死。同源 HTTPS 部署時這會連到錯的 host 且用了不安全的 ws://。
 - 解法：抽 `wsBase()`——VITE_WS_URL 未設時依 `window.location.protocol` 動態組 `wss://`/`ws://` + `window.location.host`。build 時不需知道部署網域，HTTPS 自動升級 wss。
 - **How to apply：** 同源部署的前端，API 走相對路徑即可（axios baseURL `/api`），但 **WebSocket 不支援相對 URL**，必須 runtime 用 `window.location` 組絕對 wss URL。
+
+---
+
+## 2026-06-10 輪結 Round G08 — Ubuntu 24.04 原生部署（非 Docker）
+
+### 本輪紀錄
+- CD 並行方案：使用者要求不用 Docker，改原生部署（apt PostgreSQL/Redis + systemd uvicorn + 原生 nginx）。與 G07 Docker 方案並存。
+- PM（G1）：確認非 Docker、apt 原生、systemd+nginx、保留 Redis、path unit 熱重載、交付新腳本。摸清結構（Redis 實際未用、alembic 從 settings.DATABASE_URL 讀、前端 tsc&&vite build）。
+- Dev（G2）：`install-native.sh`（13 步冪等）+ 3 個 systemd unit（backend.service 含完整強化、cert-reload.path、cert-reload.service）+ 原生 nginx-workflow.conf + DEPLOY-native.md。
+- Sec（G3）：最小權限（非 root + systemd 強化）、後端 127.0.0.1 不對外、憑證熱重載無提權（path unit + 獨立 oneshot，後端不碰 nginx）、強密鑰、私鑰 0600。**抓到並修 2 個真實缺陷**（見教訓 66/67）。
+- 靜態驗證：bash -n OK、shellcheck **EXIT=0 零警告**（用 shellcheck-py 裝 binary）、unit 結構齊全、nginx 大括號平衡。
+- 過關狀態：G1✅ G2✅ G3✅；G4/G6 = 實機驗證（使用者提供 192.168.99.178）進行中。
+
+### 教訓 / 準則
+
+**教訓 66：原生憑證熱重載要監看「後寫的那個檔」，否則 reload 時 cert/key 不匹配**
+- 情境（G08 Sec）：systemd path unit 監看憑證變更觸發 nginx reload。後端原子寫入順序是先 cert.pem 後 key.pem。若監看 cert.pem，cert 一寫完就觸發 reload，但 key.pem 可能還沒更新 → nginx 讀到新 cert + 舊 key 不匹配。
+- 根因：把「監看憑證」想成監看任一檔，沒考慮寫入是兩個檔、有先後。
+- 修復：`PathChanged` 改監看**後寫的 key.pem**，確保觸發時 cert/key 都已就位。`nginx -t` 作為第二道防線（不匹配則擋下 reload，不弄掛現有服務）。
+- **How to apply：** 任何「監看檔變更觸發動作」的設計，若被監看的是多檔集合，要監看**最後寫入的那個**當完成信號；並讓被觸發的動作自帶驗證（如 nginx -t）作保險。
+
+**教訓 67：DB 密碼進 SQL 與連線 URL 有兩個不同的注入/解析陷阱，要分別處理**
+- 情境（G08 Sec）：install 腳本把使用者自填 DB 密碼 (1) 內插進 `CREATE ROLE ... PASSWORD '${pw}'` SQL，(2) 內插進 `DATABASE_URL=...://user:${pw}@host`。
+- 兩個陷阱：(1) 密碼含單引號 → SQL 語法錯/注入；(2) 密碼含 `@ : / # ?` → URL 解析錯（密碼被當成 host/port）。
+- 修復：(1) 用 psql 變數 `-v pw="$pw"` + `:'pw'`（psql 自動加引號跳脫），不直接內插 SQL；(2) 對自填密碼做 `case *[@:/#?]*) die` 擋下 URL 保留字元，自動產生的密碼則用 `tr -d '/+='` 預先清乾淨（base64 不含 @:）。
+- **How to apply：** 凡是把使用者輸入塞進 SQL，用該 DB client 的變數綁定機制（psql `:'var'`），別字串內插；凡是塞進 URL 的密碼，要嘛限制字元集、要嘛 URL-encode。兩者是不同層的問題，別只防一個。
+
+**教訓 68：把 web app 觸發基礎設施動作從 Docker 搬到原生時，最小權限原則一樣適用（延續教訓 64）**
+- 情境（G08）：G07 Docker 版用 reloader sidecar（唯一掛 docker.sock）reload nginx。原生版沒有容器隔離，最直覺是給 backend `sudo nginx -s reload` 權限。
+- 解法：用 systemd path unit（監看憑證）+ 獨立 oneshot service（跑 reload，root 但只做這一件事），backend 完全不碰 nginx、不需任何 sudo。原生的 path unit 等價於 Docker 的 watcher sidecar。
+- 準則：跨權限邊界的動作（app→reload 系統服務），不論在 Docker 還原生，都用「檔案/訊號解耦 + 最小權限專責單元」，不要給面向使用者輸入的服務提權能力。原生環境的對應工具是 systemd path/timer + 專責 oneshot service。
+
+---
+
+## 2026-06-10 輪結 Round G08（續）— 實機驗證（192.168.99.178, Ubuntu 24.04.4）
+
+### 本輪紀錄（G6 實機）
+- 使用者提供 Ubuntu 24.04.4 實機（2 核 / 3.8G）。乾淨環境（無 docker/psql/node/nginx）跑 install-native.sh。
+- **靜態驗證全過（bash -n / shellcheck 0 警告）仍有 6 個只在實機暴露的缺陷**，逐一抓出修復後端到端通過：
+  1. psql `:'pw'` 在 `-c` 模式不展開（教訓 69）
+  2. `read; echo` 換行污染 .env 密碼（教訓 70）
+  3. 前端 build 缺 devDependencies（tsc not found，教訓 71）
+  4. 專案無 package-lock.json → `npm ci` 失敗（教訓 71 同源）
+  5. nginx 1.24 不支援 `http2 on;` 新語法（教訓 72）
+  6. systemd `ProtectHome=true` 害 asyncpg stat `$HOME/.postgresql/postgresql.key` 撞 PermissionError（教訓 73）
+- **最終驗證全綠**：4 服務 active、cert-reload.path active、HTTPS health ok、HTTP→HTTPS 301、admin 登入 200、key.pem/.env 0600 workflow、後端跑 workflow 非 root、後端只聽 127.0.0.1:8000、migration 18 版到 head、SPA 正確 serve。冪等重跑：套件/使用者/.env/憑證皆正確跳過，端到端一次過。
+- 過關狀態：G1✅ G2✅ G3✅ G4✅（靜態+實機）G5（CI 既有，原生不改 CI）G6✅ 上線運行。
+
+### 教訓 / 準則
+
+**教訓 69：psql 的 `:'var'` 變數插值只在 stdin/-f 模式生效，`-c` 字串模式不展開**
+- 情境（G08 實機 bug1）：為防 SQL 注入改用 `psql -v pw=... -c "... PASSWORD :'pw'"`，實機報 `syntax error at or near ":"`。
+- 根因：psql 的變數替換（`:'var'`）在 `-c "..."` 命令字串中**不會發生**，`:'pw'` 被原樣送進 SQL。變數插值只在互動 prompt、stdin、或 `-f file` 模式作用。
+- 修復：SQL 改經 stdin 餵入（here-string `<<<`），不用 `-c`。
+- **How to apply：** 要用 psql 變數做安全插值（避免字串內插注入），SQL 必須走 stdin 或 `-f`，不能用 `-c`。本機沒 psql 時這條 shellcheck 抓不到，務必實機測。
+
+**教訓 70：shell 函式用 $() 回傳值時，函式內任何 stdout（含 `read` 後的 `echo` 換行）都會混進回傳值**
+- 情境（G08 實機 bug2）：`prompt_secret_pw` 用 `read -rsp ...; echo` 印換行，函式以 `printf '%s' "$val"` 回傳，呼叫端 `DB_PASS="$(prompt_secret_pw ...)"`。結果 .env 寫出 `POSTGRES_PASSWORD=\n密碼`（密碼前帶換行），DATABASE_URL 也斷行 → 後端連不上 DB。
+- 根因：`$(...)` 捕捉函式**全部 stdout**；`echo` 的換行在 `printf` 之前輸出，captured 值 = `"\n"+val`。command substitution 只移除**尾部**換行，不移開頭。
+- 修復：(a) 互動提示與換行一律寫 stderr（`echo >&2`）；(b) 非互動改走環境變數覆寫（`WF_DB_PASSWORD` 等），不靠 stdin 餵答案；(c) 自動產生密碼 `tr -d '/+=\n'` 連換行一起去掉。
+- **How to apply：** 任何「以 stdout 回傳值」的 shell 函式，內部所有提示/日誌/進度都要寫 stderr，函式 stdout 只留純資料。尤其密碼這種會進 .env/URL 的值，一個雜散換行就壞掉且難察覺。
+
+**教訓 71：原生 build 要顯式裝 devDependencies，且專案該有 lockfile（npm ci 強制要求）**
+- 情境（G08 實機 bug3+4）：`npm ci --silent` 先因專案無 package-lock.json 報 EUSAGE 失敗；改善後又因 build 需要的 tsc/vite 是 devDependencies、root 環境 omit dev 而 `tsc: not found`。`--silent` 還把真實錯誤吞掉，害人以為成功。
+- 修復：(a) 偵測 lockfile —— 有則 `npm ci`（可重現），無則 `npm install` 並 warn 建議補 lock 檔；(b) 一律 `--include=dev` + `NODE_ENV=development` 確保裝 devDeps；(c) 不用 `--silent`，build 失敗要能看到 tsc/vite 錯誤。
+- **How to apply：** 部署腳本跑前端 build 前確認：專案有 lockfile 嗎？build 工具（tsc/vite/webpack）在 devDependencies 嗎？production/root 環境預設會 omit dev，要顯式 include。別用 `--silent` 蓋掉 build 錯誤。建議把 package-lock.json 提交進版控（本專案缺，列待補）。
+
+**教訓 72：寫 nginx 設定要對齊「目標環境的 nginx 版本」，新指令在舊版是 emerg**
+- 情境（G08 實機 bug5）：用了 `http2 on;`（nginx 1.25+ 獨立指令），Ubuntu 24.04 內建 nginx 1.24 → `[emerg] unknown directive "http2"`，nginx -t 失敗。
+- 修復：改回相容語法 `listen 443 ssl http2;`（在 listen 行帶 http2，1.24 與更新版都吃）。
+- **How to apply：** 部署設定用的指令語法要對齊目標發行版內建的服務版本（Ubuntu 24.04 = nginx 1.24、postgres 16、node 視 NodeSource）。新版才有的語法在舊版直接 emerg。本機沒 nginx 時 `nginx -t` 在實機才跑得到——又一個必須實機測的點。
+
+**教訓 73：systemd `ProtectHome=true` 會讓程式對 $HOME 的探測從 FileNotFound 變成 PermissionError**
+- 情境（G08 實機 bug6）：backend 跑起來即 crash，`PermissionError: '/home/workflow/.postgresql/postgresql.key'`。asyncpg 連線時會探測 `$HOME/.postgresql/postgresql.key`（SSL client key 預設路徑）；systemd `ProtectHome=true` 把 /home 設為不可存取，asyncpg 的 `os.stat` 不是得到「檔案不存在」而是「權限拒絕」，未被 asyncpg 容錯 → 啟動失敗。（migration 用 psycopg2 同步驅動沒踩到，只有 asyncpg async 驅動會。）
+- 修復：service 加 `Environment=HOME=/opt/workflow`（已在 ReadWritePaths 內、可 stat），該探測變成 FileNotFound（asyncpg 接受），同時保留 ProtectHome 的安全性。
+- **How to apply：** 用 systemd 強化（ProtectHome/ProtectSystem）跑會探測 $HOME 預設設定檔的程式（DB client、ssh、各種 ~/.foo）時，要嘛把 HOME 指到可存取的工作目錄，要嘛在連線設定明確關掉該探測（如 DB 連線指定 sslmode/ssl 參數）。「stat 被擋」與「檔案不存在」對程式是不同例外，很多程式只處理後者。延續教訓 64 的最小權限：強化要做，但要補上被強化擋住的合法路徑。
+
+---
+
+## 2026-06-10 輪結 Round G08（最終交付）— 全自動一鍵部署
+
+### 本輪紀錄
+- 使用者要求最終交付「全自動安裝部署腳本」。在前述 6 bug 修復基礎上：
+  - 加 `--auto` / `WF_AUTO=1` 旗標 + 無 tty 自動啟用全自動：零互動、密碼自動產生、結尾印 admin 密碼。
+  - 補 `frontend/package-lock.json`（在實機 `npm install --package-lock-only` 產生、拉回 commit），腳本改回 `npm ci`（可重現、鎖版本）。
+- **清場重裝驗證**（使用者授權 drop DB + 刪部署）：乾淨狀態用 `--auto` 全自動跑，一次到「後端已就緒」。
+- 最終端到端：4 服務 active、HTTPS health、HTTP→301、**用自動產生的 admin 密碼登入 200**、SPA serve、後端非 root + 127.0.0.1、key 0600、npm ci 用 lockfile。
+- 過關狀態：G1~G6 全達標，全自動交付品上線運行。
+
+### 教訓 / 準則
+
+**教訓 74：「全自動」旗標要同時涵蓋三種觸發，且互動輸出全寫 stderr**
+- 情境（G08 最終）：腳本要同時支援人類互動、CI 管線、SSH 非互動。
+- 準則：全自動的觸發條件設三層——顯式 `--auto` 旗標、`WF_AUTO=1` 環境變數、以及 `[ -t 0 ]` 偵測無 tty 自動啟用。三者任一成立即全自動。敏感值（密碼）優先吃環境變數，否則自動產生。
+- 關鍵：全自動產生的密碼**必須在結尾印給使用者**（否則沒人知道怎麼登入），且只在「本次新建」時印、沿用既有 .env 時不印。提示與密碼用獨立 here-doc 段落輸出，與被 $() 捕捉的函式 stdout 分離（延續教訓 70）。
+- **How to apply：** 部署腳本要「人能互動、機器能全自動」兩用時，用旗標+env+tty 偵測三層觸發；自動產生的憑證/密碼一定要有出口（印出或寫入已知檔案並告知路徑）。
+
+---
+
+## 2026-06-10 輪結 Round G08（QA 實地驗證）— 部署後功能煙霧測試
+
+### 本輪紀錄
+- 使用者要求「測試實地部署後所有功能是否正常」。從運行中 app 取路由表（prod 關了 openapi，改 `app.routes`）盤點 **108 個端點**。
+- 寫 `backend/tests/smoke_e2e.py`：有狀態端到端煙霧測試（token/資源 ID 串接），打 HTTPS 部署入口，覆蓋任務核心環 + 協作 + 輔助 45 個檢核點：認證(登入/錯誤密碼401/refresh/未授權401)、使用者、專案 CRUD、成員、任務 CRUD、看板移動、子任務、評論+反應、依賴、時間追蹤、每日任務、通知、儀表板、搜尋、日曆、工作量、insights、週報、範本、AI 建議、系統設定、TLS、公告、刪除清理。
+- **首跑 43/45**：2 個 FAIL 都是**測試腳本 payload 寫錯**（refresh_token 走 query 非 body；calendar 需 year/month query），非系統缺陷。修正後**重跑 45/45 = 100%**。
+- 品質 Exit Criteria（通過率達標、無 Critical/Major 缺陷）→ 達標。系統零缺陷。
+
+### 教訓 / 準則
+
+**教訓 75：煙霧測試 FAIL 先分「受測系統的缺陷」還是「測試本身的缺陷」，別急著當 bug**
+- 情境（G08 QA）：首跑 2 個 FAIL（refresh、calendar），看回應是 422 `missing query param`——是測試打錯參數位置（body vs query），不是功能壞。修測試後 100%。
+- 準則：API 煙霧測試的 FAIL，先讀回應體判斷類型：422/缺參數/打錯路徑 → 多半是測試寫錯；500/連線失敗/邏輯錯值 → 才是系統缺陷。把測試缺陷誤報成系統 bug 會誤導結案判斷。
+- **How to apply：** 寫黑箱 API 測試前，先確認每個端點的參數位置（query vs body vs path）；prod 關 openapi 時從 `app.routes` 或 endpoint 簽名查 `params=`/`json=`。FAIL 時第一步看 HTTP 狀態碼與 detail，先排除測試自身錯誤再開缺陷單。
+
+**教訓 76：prod 關閉 /docs 時 openapi.json 通常也一併關，盤點路由改從 app.routes**
+- 情境（G08 QA）：`docs_url=None` 的 production 下 `curl /openapi.json` 無輸出，無法用 schema 盤點端點。
+- 解法：在主機用 venv python `from app.main import app; for r in app.routes: r.path, r.methods` 直接列出實際註冊的路由（108 個），這是運行時真相、不受 docs 開關影響。
+- **How to apply：** 要盤點 prod API 表又沒開 openapi 時，從 ASGI app 的 `.routes` 取；或臨時在非 prod 設定開 openapi。別假設 /openapi.json 一定在。
