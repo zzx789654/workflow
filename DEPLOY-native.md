@@ -68,6 +68,23 @@ sudo WF_DB_PASSWORD=... WF_ADMIN_PASSWORD=... WF_ADMIN_EMAIL=admin@example.com \
 
 完成後瀏覽 `https://<主機>/`，以 admin email 的 `@` 前綴為登入帳號（例：`admin@localhost` → 帳號 `admin`）。
 
+## 管理者帳號
+
+後端首次啟動時會自動建立一個管理者帳號（`role=admin`、`auth_source=local`），冪等——
+已存在則不重建、不覆蓋。
+
+- **登入帳號**：`FIRST_SUPERADMIN_EMAIL` 的 `@` 前綴（預設 `admin`）。
+- **密碼**：**不是固定預設值**，而是部署時隨機產生的強密碼，於安裝輸出印出
+  （`登入密碼：…`），亦存於 `/opt/workflow/.env` 的 `FIRST_SUPERADMIN_PASSWORD`。
+  可改用 `WF_ADMIN_PASSWORD` 環境變數自帶。
+- **防呆**：`APP_ENV=production` 時 `validate_production_secrets()` 會拒絕以弱／預設
+  密碼（如 `admin123456`）啟動，因此生產環境不會留下弱預設帳號。
+
+> **首次登入後請立即改密碼**：登入 → 設定 → 修改密碼。改密碼會使該帳號**所有舊
+> token 立即失效**（token_version 機制），等同強制重新登入，安全性更高。改完即可
+> 將 `/opt/workflow/.env` 中的 `FIRST_SUPERADMIN_PASSWORD` 視為歷史值（之後以資料庫
+> 內的新密碼為準）。
+
 ## 安全設計（延續 G06/G07）
 
 - **最小權限**：後端以非 root `workflow` 執行；systemd 強化（`NoNewPrivileges` / `ProtectSystem=strict` / `MemoryDenyWriteExecute` / `RestrictAddressFamilies` 等）。
