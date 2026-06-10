@@ -742,3 +742,23 @@
 - 情境（G08 實機 bug6）：backend 跑起來即 crash，`PermissionError: '/home/workflow/.postgresql/postgresql.key'`。asyncpg 連線時會探測 `$HOME/.postgresql/postgresql.key`（SSL client key 預設路徑）；systemd `ProtectHome=true` 把 /home 設為不可存取，asyncpg 的 `os.stat` 不是得到「檔案不存在」而是「權限拒絕」，未被 asyncpg 容錯 → 啟動失敗。（migration 用 psycopg2 同步驅動沒踩到，只有 asyncpg async 驅動會。）
 - 修復：service 加 `Environment=HOME=/opt/workflow`（已在 ReadWritePaths 內、可 stat），該探測變成 FileNotFound（asyncpg 接受），同時保留 ProtectHome 的安全性。
 - **How to apply：** 用 systemd 強化（ProtectHome/ProtectSystem）跑會探測 $HOME 預設設定檔的程式（DB client、ssh、各種 ~/.foo）時，要嘛把 HOME 指到可存取的工作目錄，要嘛在連線設定明確關掉該探測（如 DB 連線指定 sslmode/ssl 參數）。「stat 被擋」與「檔案不存在」對程式是不同例外，很多程式只處理後者。延續教訓 64 的最小權限：強化要做，但要補上被強化擋住的合法路徑。
+
+---
+
+## 2026-06-10 輪結 Round G08（最終交付）— 全自動一鍵部署
+
+### 本輪紀錄
+- 使用者要求最終交付「全自動安裝部署腳本」。在前述 6 bug 修復基礎上：
+  - 加 `--auto` / `WF_AUTO=1` 旗標 + 無 tty 自動啟用全自動：零互動、密碼自動產生、結尾印 admin 密碼。
+  - 補 `frontend/package-lock.json`（在實機 `npm install --package-lock-only` 產生、拉回 commit），腳本改回 `npm ci`（可重現、鎖版本）。
+- **清場重裝驗證**（使用者授權 drop DB + 刪部署）：乾淨狀態用 `--auto` 全自動跑，一次到「後端已就緒」。
+- 最終端到端：4 服務 active、HTTPS health、HTTP→301、**用自動產生的 admin 密碼登入 200**、SPA serve、後端非 root + 127.0.0.1、key 0600、npm ci 用 lockfile。
+- 過關狀態：G1~G6 全達標，全自動交付品上線運行。
+
+### 教訓 / 準則
+
+**教訓 74：「全自動」旗標要同時涵蓋三種觸發，且互動輸出全寫 stderr**
+- 情境（G08 最終）：腳本要同時支援人類互動、CI 管線、SSH 非互動。
+- 準則：全自動的觸發條件設三層——顯式 `--auto` 旗標、`WF_AUTO=1` 環境變數、以及 `[ -t 0 ]` 偵測無 tty 自動啟用。三者任一成立即全自動。敏感值（密碼）優先吃環境變數，否則自動產生。
+- 關鍵：全自動產生的密碼**必須在結尾印給使用者**（否則沒人知道怎麼登入），且只在「本次新建」時印、沿用既有 .env 時不印。提示與密碼用獨立 here-doc 段落輸出，與被 $() 捕捉的函式 stdout 分離（延續教訓 70）。
+- **How to apply：** 部署腳本要「人能互動、機器能全自動」兩用時，用旗標+env+tty 偵測三層觸發；自動產生的憑證/密碼一定要有出口（印出或寫入已知檔案並告知路徑）。

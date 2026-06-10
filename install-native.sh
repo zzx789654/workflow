@@ -8,10 +8,23 @@
 # 用法：
 #   sudo ./install-native.sh                    # 互動式（DOMAIN 預設 localhost）
 #   sudo DOMAIN=workflow.local ./install-native.sh
+#   sudo ./install-native.sh --auto             # 全自動：所有密碼自動產生、零互動
+#   sudo WF_AUTO=1 DOMAIN=workflow.local ./install-native.sh
+#
+# 全自動模式（--auto 或 WF_AUTO=1，或在無 tty 環境如 CI/SSH 管線下自動啟用）：
+#   不詢問任何問題；DB/admin 密碼若未由 WF_DB_PASSWORD/WF_ADMIN_PASSWORD 提供則自動
+#   產生強密碼。部署完成後會印出 admin 登入密碼（請妥善保存）。
 #
 # 需以 root / sudo 執行。重複執行為冪等（已完成的步驟會跳過）。
 
 set -euo pipefail
+
+# ── 全自動旗標 ────────────────────────────────────────────────
+# --auto / WF_AUTO=1 強制全自動；否則無 tty（CI/管線）時也自動視為全自動。
+WF_AUTO="${WF_AUTO:-0}"
+[ "${1:-}" = "--auto" ] && WF_AUTO=1
+[ -t 0 ] || WF_AUTO=1
+is_auto() { [ "$WF_AUTO" = "1" ]; }
 
 # ── 樣式 ──────────────────────────────────────────────────────
 info()  { printf '\033[1;34m[INFO]\033[0m %s\n' "$*"; }
@@ -122,7 +135,8 @@ prompt_secret_pw() {
   if [ -n "$envname" ] && [ -n "${!envname:-}" ]; then
     printf '%s' "${!envname}"; return
   fi
-  if [ -t 0 ]; then
+  # 全自動模式：直接產生強密碼，不詢問。否則互動詢問（留空也自動產生）。
+  if ! is_auto && [ -t 0 ]; then
     read -rsp "${prompt}（留空自動產生）：" val; echo >&2
   fi
   [ -n "$val" ] || val="$(gen_pw)"
@@ -146,12 +160,14 @@ else
   ADMIN_PASS="$(prompt_secret_pw '設定管理員(admin)密碼' WF_ADMIN_PASSWORD)"
   if [ -n "${WF_ADMIN_EMAIL:-}" ]; then
     ADMIN_EMAIL="$WF_ADMIN_EMAIL"
-  elif [ -t 0 ]; then
+  elif ! is_auto && [ -t 0 ]; then
     read -rp "管理員 Email（預設 admin@${DOMAIN}）：" ADMIN_EMAIL
     ADMIN_EMAIL="${ADMIN_EMAIL:-admin@${DOMAIN}}"
   else
     ADMIN_EMAIL="admin@${DOMAIN}"
   fi
+  # 記住本次自動產生的 admin 密碼，部署完成後印給使用者（全自動模式必要）
+  GENERATED_ADMIN_PASS="$ADMIN_PASS"
 
   cat > "$ENV_FILE" <<EOF
 # 由 install-native.sh 於 $(date -u +%Y-%m-%dT%H:%M:%SZ) 產生。請勿提交版控。
@@ -241,13 +257,13 @@ build_frontend() {
   (
     cd "${APP_DIR}/frontend"
     export NODE_ENV=development VITE_API_URL="" VITE_WS_URL=""
-    # 有 lock 檔用 npm ci（可重現）；無則用 npm install。
+    # 有 lock 檔用 npm ci（可重現、鎖版本）；無則 fallback npm install。
     # 兩者都顯式 --include=dev：build 需要 tsc / vite（devDependencies），
     # npm 在 root/production 環境會 omit dev。
     if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
       npm ci --include=dev --no-audit --no-fund
     else
-      warn "frontend 無 package-lock.json，改用 npm install（建議補 lock 檔以可重現建置）"
+      warn "frontend 無 package-lock.json，改用 npm install（版本不鎖定）"
       npm install --include=dev --no-audit --no-fund
     fi
     npm run build
@@ -328,6 +344,18 @@ $(ok '原生部署完成')
   存取網址：   https://${DOMAIN}/   （或 https://<本機 IP>/）
   管理員帳號： ${ADMIN_EMAIL:-（沿用既有 .env）} 的 @ 前綴為登入帳號
                例：admin@${DOMAIN} → 登入帳號 admin
+EOF
+
+# 全自動產生的 admin 密碼必須印出（否則沒人知道怎麼登入）；沿用既有 .env 時不印。
+if [ -n "${GENERATED_ADMIN_PASS:-}" ]; then
+  cat <<EOF
+$(warn '管理員密碼（本次自動產生，請立即保存——不會再顯示）')
+  登入密碼： ${GENERATED_ADMIN_PASS}
+  （之後可登入後於設定頁修改；密碼亦存於 ${ENV_FILE} 的 FIRST_SUPERADMIN_PASSWORD）
+EOF
+fi
+
+cat <<EOF
 
 $(warn '自簽憑證提醒')
   瀏覽器首次連線會顯示「不安全」告警，這是自簽憑證的正常現象。

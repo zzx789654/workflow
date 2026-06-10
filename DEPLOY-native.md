@@ -35,12 +35,22 @@
 # 1. 取得專案（git clone 或 scp 上傳）
 git clone <repo-url> workflow && cd workflow
 
-# 2. 執行安裝腳本（需 root）
-sudo ./install-native.sh
+# 2a. 全自動部署（零互動，所有密碼自動產生，完成後印出 admin 密碼）
+sudo ./install-native.sh --auto
+sudo WF_AUTO=1 DOMAIN=workflow.example.com ./install-native.sh
 
-# 或指定網域（自簽憑證 SAN 會用到）：
+# 2b. 互動式（會詢問 DB/admin 密碼，留空則自動產生）
+sudo ./install-native.sh
 sudo DOMAIN=workflow.example.com ./install-native.sh
+
+# 2c. 自帶密碼（搭配自動化編排，免互動也免「自動產生」）
+sudo WF_DB_PASSWORD=... WF_ADMIN_PASSWORD=... WF_ADMIN_EMAIL=admin@example.com \
+     DOMAIN=example.com ./install-native.sh
 ```
+
+> **全自動模式**：`--auto`、`WF_AUTO=1`，或在無 tty 環境（CI / SSH 管線）下會自動啟用。
+> 不詢問任何問題；密碼若未由環境變數提供則自動產生強密碼，並在**部署完成時印出
+> admin 登入密碼**（請立即保存，之後可登入後於設定頁修改，密碼亦存於 `/opt/workflow/.env`）。
 
 腳本會（冪等，可重複執行）：
 1. apt 安裝 PostgreSQL / Redis / Python / Node.js 20 / nginx
