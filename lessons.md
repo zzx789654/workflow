@@ -762,3 +762,25 @@
 - 準則：全自動的觸發條件設三層——顯式 `--auto` 旗標、`WF_AUTO=1` 環境變數、以及 `[ -t 0 ]` 偵測無 tty 自動啟用。三者任一成立即全自動。敏感值（密碼）優先吃環境變數，否則自動產生。
 - 關鍵：全自動產生的密碼**必須在結尾印給使用者**（否則沒人知道怎麼登入），且只在「本次新建」時印、沿用既有 .env 時不印。提示與密碼用獨立 here-doc 段落輸出，與被 $() 捕捉的函式 stdout 分離（延續教訓 70）。
 - **How to apply：** 部署腳本要「人能互動、機器能全自動」兩用時，用旗標+env+tty 偵測三層觸發；自動產生的憑證/密碼一定要有出口（印出或寫入已知檔案並告知路徑）。
+
+---
+
+## 2026-06-10 輪結 Round G08（QA 實地驗證）— 部署後功能煙霧測試
+
+### 本輪紀錄
+- 使用者要求「測試實地部署後所有功能是否正常」。從運行中 app 取路由表（prod 關了 openapi，改 `app.routes`）盤點 **108 個端點**。
+- 寫 `backend/tests/smoke_e2e.py`：有狀態端到端煙霧測試（token/資源 ID 串接），打 HTTPS 部署入口，覆蓋任務核心環 + 協作 + 輔助 45 個檢核點：認證(登入/錯誤密碼401/refresh/未授權401)、使用者、專案 CRUD、成員、任務 CRUD、看板移動、子任務、評論+反應、依賴、時間追蹤、每日任務、通知、儀表板、搜尋、日曆、工作量、insights、週報、範本、AI 建議、系統設定、TLS、公告、刪除清理。
+- **首跑 43/45**：2 個 FAIL 都是**測試腳本 payload 寫錯**（refresh_token 走 query 非 body；calendar 需 year/month query），非系統缺陷。修正後**重跑 45/45 = 100%**。
+- 品質 Exit Criteria（通過率達標、無 Critical/Major 缺陷）→ 達標。系統零缺陷。
+
+### 教訓 / 準則
+
+**教訓 75：煙霧測試 FAIL 先分「受測系統的缺陷」還是「測試本身的缺陷」，別急著當 bug**
+- 情境（G08 QA）：首跑 2 個 FAIL（refresh、calendar），看回應是 422 `missing query param`——是測試打錯參數位置（body vs query），不是功能壞。修測試後 100%。
+- 準則：API 煙霧測試的 FAIL，先讀回應體判斷類型：422/缺參數/打錯路徑 → 多半是測試寫錯；500/連線失敗/邏輯錯值 → 才是系統缺陷。把測試缺陷誤報成系統 bug 會誤導結案判斷。
+- **How to apply：** 寫黑箱 API 測試前，先確認每個端點的參數位置（query vs body vs path）；prod 關 openapi 時從 `app.routes` 或 endpoint 簽名查 `params=`/`json=`。FAIL 時第一步看 HTTP 狀態碼與 detail，先排除測試自身錯誤再開缺陷單。
+
+**教訓 76：prod 關閉 /docs 時 openapi.json 通常也一併關，盤點路由改從 app.routes**
+- 情境（G08 QA）：`docs_url=None` 的 production 下 `curl /openapi.json` 無輸出，無法用 schema 盤點端點。
+- 解法：在主機用 venv python `from app.main import app; for r in app.routes: r.path, r.methods` 直接列出實際註冊的路由（108 個），這是運行時真相、不受 docs 開關影響。
+- **How to apply：** 要盤點 prod API 表又沒開 openapi 時，從 ASGI app 的 `.routes` 取；或臨時在非 prod 設定開 openapi。別假設 /openapi.json 一定在。
