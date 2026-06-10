@@ -100,6 +100,7 @@ HOME=/opt/workflow .venv/bin/python tests/smoke_e2e.py \
 
 | 文件 | 內容 |
 |------|------|
+| [VERSIONS.md](VERSIONS.md) | 部署版本與步驟（Ubuntu 原生 / Docker 的套件版本與步驟） |
 | [DEPLOY-native.md](DEPLOY-native.md) | Ubuntu 24.04 原生部署（非 Docker） |
 | [DEPLOY.md](DEPLOY.md) | Docker 部署 |
 | [CoreMain.md](CoreMain.md) | 專案中心思想與設計原則 |
