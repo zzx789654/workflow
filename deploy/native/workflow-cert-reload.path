@@ -1,0 +1,17 @@
+# 監看 TLS 憑證檔變更 → 觸發 workflow-cert-reload.service 重載 nginx。
+# 取代 Docker 版的 reloader sidecar：前端設定頁上傳憑證後，後端原子寫入
+# /opt/workflow/certs/cert.pem，此 path unit 偵測到變更即觸發 nginx -s reload。
+# 權限隔離：reload 由獨立 service 以最小權限執行，backend 不需提權（教訓 64）。
+
+[Unit]
+Description=Watch WorkFlow TLS cert for changes and reload nginx
+
+[Path]
+# 監看 key.pem（不是 cert.pem）：後端原子寫入順序為先 cert.pem 後 key.pem，
+# 監看後寫的 key.pem 才能確保 reload 時 cert/key 都已就位、相互匹配。
+# （監看 cert.pem 會在 key 尚未更新時就觸發，nginx -t 會擋下不匹配的 reload。）
+PathChanged=/opt/workflow/certs/key.pem
+Unit=workflow-cert-reload.service
+
+[Install]
+WantedBy=multi-user.target

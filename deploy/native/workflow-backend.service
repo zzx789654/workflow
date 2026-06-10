@@ -1,0 +1,43 @@
+# WorkFlow 後端 — uvicorn systemd service（Ubuntu 24.04 原生部署）
+# 由 install-native.sh 佈署到 /etc/systemd/system/workflow-backend.service。
+# 以非 root 專屬使用者 workflow 執行；環境變數由 EnvironmentFile 提供。
+
+[Unit]
+Description=WorkFlow FastAPI backend (uvicorn)
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=exec
+User=workflow
+Group=workflow
+WorkingDirectory=/opt/workflow/backend
+# HOME 指向可存取目錄：ProtectHome=true 會擋 /home 的 stat，而 asyncpg 啟動時會
+# 探測 $HOME/.postgresql/postgresql.key（SSL client key 預設路徑）。指向 /opt/workflow
+# 後該 stat 變成 FileNotFound（asyncpg 可接受），而非 /home 的 PermissionError（會炸）。
+Environment=HOME=/opt/workflow
+EnvironmentFile=/opt/workflow/.env
+# 只聽 127.0.0.1：後端不對外，僅 nginx 反向代理可達
+ExecStart=/opt/workflow/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+Restart=on-failure
+RestartSec=3
+
+# ── systemd 強化（最小權限，延續 G06）──────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# 僅放行需要寫入的路徑（附件上傳、憑證寫入目錄）
+ReadWritePaths=/opt/workflow/uploads /opt/workflow/certs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

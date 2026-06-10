@@ -1,0 +1,13 @@
+# 由 workflow-cert-reload.path 觸發：重新載入 nginx 以套用新憑證。
+# oneshot：執行一次即結束。只做 nginx reload 這一件事（最小職責）。
+
+[Unit]
+Description=Reload nginx after WorkFlow TLS cert change
+After=nginx.service
+Requires=nginx.service
+
+[Service]
+Type=oneshot
+# 先驗設定再 reload；設定壞掉就不 reload（避免把 nginx 弄掛）
+ExecStart=/usr/sbin/nginx -t
+ExecStart=/usr/sbin/nginx -s reload
