@@ -96,7 +96,7 @@ sudo WF_AUTO=1 DOMAIN=workflow.example.com ./install-native.sh
 12. **佈署 systemd units + nginx 設定**，啟動服務
 13. **等待健康檢查** 通過，印出存取網址與 admin 密碼
 
-完成後：`https://<主機>/`。架構與維運見 [DEPLOY-native.md](DEPLOY-native.md)。
+完成後：`https://<主機>/`。架構與維運見 [README — 方式 B](README.md#方式-b--ubuntu-裸機部署非-docker)。
 
 ---
 
@@ -148,7 +148,7 @@ sudo DOMAIN=workflow.example.com ./install.sh
 5. **`docker compose -f docker-compose.prod.yml up -d --build`** — build 並啟動全部服務
 6. **等待後端健康檢查** 通過
 
-完成後：`https://<主機>/`。架構與維運見 [DEPLOY.md](DEPLOY.md)。
+完成後：`https://<主機>/`。架構與維運見 [README — 方式 A](README.md#方式-a--docker-部署)。
 
 ---
 
