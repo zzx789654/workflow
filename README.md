@@ -144,6 +144,13 @@ openssl / Git for Windows。
 
 ### C-1. 部署步驟
 
+**最簡單：雙擊 `install.bat`**。它會先解除「來自網路」標記（ZIP 下載常見、
+會被智慧型應用程式控制 Smart App Control 封鎖），再以正確參數呼叫
+`install.ps1`，最後停在畫面等你看結果。要指定網域可在命令列：
+`install.bat -Domain workflow.example.com`。
+
+或在 PowerShell 手動執行：
+
 ```powershell
 # 1) 取得程式碼
 git clone https://github.com/zzx789654/workflow.git workflow
@@ -155,6 +162,10 @@ cd workflow
 # 可選：指定網域（憑證 CN 與 CORS 會用它）
 .\install.ps1 -Domain workflow.example.com
 ```
+
+> **ZIP 下載 + 雙擊 `.ps1` 被封鎖？** 下載 ZIP 解壓的檔案帶「網路標記」，
+> 雙擊 `.ps1` 也不是執行方式（預設是編輯）。用 `install.bat`（已自動解標記），
+> 或在 PowerShell 先跑 `Get-ChildItem -Recurse | Unblock-File` 再 `.\install.ps1`。
 
 腳本依序（與 `install.sh` 等價、冪等可重跑）：
 
