@@ -56,24 +56,8 @@ if ($LASTEXITCODE -ne 0) {
 docker compose version *> $null
 if ($LASTEXITCODE -ne 0) { Die "docker compose 不可用，請更新 Docker Desktop（內含 compose v2）" }
 Write-Ok "Docker Desktop 與 compose 已就緒"
-
-# openssl：用來產生自簽憑證。優先用 PATH 上的，否則自動探測 Git for Windows 內建的
-# （Git 預設只把 cmd\ 加進 PATH，usr\bin\openssl.exe 不在 PATH，故主動尋找）。
-$OpenSslCmd = (Get-Command openssl -ErrorAction SilentlyContinue)
-if ($OpenSslCmd) {
-    $OpenSsl = $OpenSslCmd.Source
-} else {
-    $candidates = @(
-        "$env:ProgramFiles\Git\usr\bin\openssl.exe",
-        "$env:ProgramFiles\Git\mingw64\bin\openssl.exe",
-        "${env:ProgramFiles(x86)}\Git\usr\bin\openssl.exe"
-    )
-    $OpenSsl = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-}
-if (-not $OpenSsl) {
-    Die "找不到 openssl。請安裝 Git for Windows（內含 openssl）或將 openssl 加入 PATH 後重試。"
-}
-Write-Ok "openssl：$OpenSsl"
+# 憑證以 .NET 內建 X509 API 產生（見步驟 3），故 Windows 上只需 Docker Desktop，
+# 不再依賴 openssl / Git for Windows。
 
 # ── 工具：產生強密鑰 / 密碼 ───────────────────────────────────
 function New-Secret {
@@ -133,32 +117,58 @@ SETTINGS_ENCRYPT_KEY=$(New-Secret)
 }
 
 # ── 3. 產生自簽憑證並注入 certs volume ────────────────────────
+# 改用 .NET 內建 X509 API 產生憑證（Windows 不需 openssl/Git）。Windows PowerShell
+# 5.1（.NET Framework）沒有 ExportCertificatePem / ExportPkcs8PrivateKey，故先匯出
+# 成 PFX，再於注入用的一次性 Alpine 容器內以其自帶 openssl 轉成 cert.pem + key.pem。
 $CertDir = Join-Path ([System.IO.Path]::GetTempPath()) ("wf_cert_" + [System.Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $CertDir -Force | Out-Null
 try {
     Write-Info "產生自簽 TLS 憑證（CN=$Domain，825 天）…"
-    $keyPath  = Join-Path $CertDir "key.pem"
-    $certPath = Join-Path $CertDir "cert.pem"
-    # openssl 會把進度點寫到 stderr；Windows PowerShell 5.1 會把 native stderr 包成
-    # ErrorRecord，配上 $ErrorActionPreference=Stop 會誤判為失敗。故用 cmd /c 執行並
-    # 把 stderr 丟到 nul，讓進度輸出根本不進 PowerShell 的錯誤串流。
-    $sslArgs = "req -x509 -newkey rsa:2048 -nodes " +
-               "-keyout `"$keyPath`" -out `"$certPath`" " +
-               "-days 825 -subj `"/CN=$Domain`" " +
-               "-addext `"subjectAltName=DNS:$Domain,DNS:localhost`""
-    cmd /c "`"$OpenSsl`" $sslArgs 2>nul"
-    if (-not (Test-Path $certPath) -or -not (Test-Path $keyPath)) { Die "openssl 產生憑證失敗" }
+    $pfxPath = Join-Path $CertDir "cert.pfx"
+    # PFX 暫時密碼（只在主機→容器轉檔的瞬間使用，轉完即丟）
+    $pfxPass = New-Secret
+
+    $rsa = [System.Security.Cryptography.RSA]::Create(2048)
+    try {
+        $dn = New-Object System.Security.Cryptography.X509Certificates.X500DistinguishedName "CN=$Domain"
+        $req = New-Object System.Security.Cryptography.X509Certificates.CertificateRequest `
+            $dn, $rsa,
+            ([System.Security.Cryptography.HashAlgorithmName]::SHA256),
+            ([System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+
+        # SubjectAltName：$Domain + localhost（瀏覽器/工具以 SAN 驗主機名）
+        $san = New-Object System.Security.Cryptography.X509Certificates.SubjectAlternativeNameBuilder
+        $san.AddDnsName($Domain)
+        if ($Domain -ne "localhost") { $san.AddDnsName("localhost") }
+        $req.CertificateExtensions.Add($san.Build())
+
+        $notBefore = [System.DateTimeOffset]::UtcNow.AddDays(-1)
+        $notAfter  = [System.DateTimeOffset]::UtcNow.AddDays(825)
+        $cert = $req.CreateSelfSigned($notBefore, $notAfter)
+
+        $pfxBytes = $cert.Export(
+            [System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $pfxPass)
+        [System.IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+        $cert.Dispose()
+    }
+    finally {
+        $rsa.Dispose()
+    }
+    if (-not (Test-Path $pfxPath)) { Die "產生自簽憑證失敗" }
     Write-Ok "自簽憑證已產生"
 
-    # 用一次性容器把憑證寫入 named volume（與 install.sh 一致）
+    # 用一次性容器把 PFX 轉成 PEM 並寫入 named volume（容器自帶 openssl，主機免裝）
     Write-Info "建立並注入 certs volume（$Volume）…"
     docker volume create $Volume | Out-Null
-    # 路徑轉成 Docker Desktop 可掛載格式（C:\foo → /c/foo 由 Docker Desktop 自動處理，
-    # 但 -v 需要轉成正斜線）
+    # 路徑轉成 Docker Desktop 可掛載格式（-v 需正斜線）
     $CertDirMount = ($CertDir -replace '\\', '/')
+    $convert = "apk add --no-cache openssl >/dev/null 2>&1 && " +
+               "openssl pkcs12 -in /src/cert.pfx -passin pass:$pfxPass -clcerts -nokeys -out /certs/cert.pem && " +
+               "openssl pkcs12 -in /src/cert.pfx -passin pass:$pfxPass -nocerts -nodes -out /certs/key.pem && " +
+               "chmod 600 /certs/key.pem"
     docker run --rm -v "${Volume}:/certs" -v "${CertDirMount}:/src:ro" alpine:latest `
-        sh -c "cp /src/cert.pem /certs/cert.pem && cp /src/key.pem /certs/key.pem && chmod 600 /certs/key.pem"
-    if ($LASTEXITCODE -ne 0) { Die "注入憑證至 volume 失敗" }
+        sh -c $convert *> $null
+    if ($LASTEXITCODE -ne 0) { Die "PFX 轉 PEM / 注入 volume 失敗" }
     Write-Ok "憑證已注入 volume"
 }
 finally {

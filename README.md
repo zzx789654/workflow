@@ -32,7 +32,7 @@
 |---|---|---|---|
 | 安裝腳本 | `install.sh` | `install-native.sh` | `install.ps1` |
 | 作業系統 | Linux（Ubuntu 24.04） | Ubuntu 24.04 | Windows 10/11、Server 2022 |
-| 相依 | Docker Engine | apt 系統套件 + Python venv | Docker Desktop + Git for Windows |
+| 相依 | Docker Engine | apt 系統套件 + Python venv | 只需 Docker Desktop |
 | 服務管理 | Docker Compose 容器 | systemd 原生服務 | Docker Compose 容器 |
 | 隔離 | 容器隔離 | systemd 強化 + 服務隔離 | 容器隔離（WSL2 後端） |
 | 升級 | 重 build image | `git pull` + 重跑腳本 | 重 build image |
@@ -131,11 +131,12 @@ Redis、nginx），由 PowerShell 腳本 `install.ps1` 一鍵部署，對應 Lin
 
 ### C-0. 前置需求（一次性）
 
+**只需要 Docker Desktop**——憑證由腳本以 .NET 內建 X509 API 產生，不需另裝
+openssl / Git for Windows。
+
 1. **Docker Desktop**：安裝後開啟，等待右下角狀態顯示 **Running**。
    建議用 WSL2 後端（Settings → General → Use the WSL 2 based engine）。
-2. **Git for Windows**：內含部署所需的 `openssl`（用來產生自簽憑證）。
-   裝好即可——腳本會自動探測 Git 內建的 `openssl`，不必手動加入 PATH。
-3. **允許執行腳本**：若 PowerShell 擋下 `install.ps1`，於**目前工作階段**放行（不改全域設定）：
+2. **允許執行腳本**：若 PowerShell 擋下 `install.ps1`，於**目前工作階段**放行（不改全域設定）：
 
    ```powershell
    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -157,10 +158,11 @@ cd workflow
 
 腳本依序（與 `install.sh` 等價、冪等可重跑）：
 
-1. 偵測 Docker Desktop 是否安裝且 daemon 已啟動、`docker compose` 可用、`openssl` 在 PATH。
+1. 偵測 Docker Desktop 是否安裝且 daemon 已啟動、`docker compose` 可用。
 2. 建立 `.env`：以 .NET 亂數產生 `SECRET_KEY` / `SETTINGS_ENCRYPT_KEY`，
    設定資料庫密碼與管理員密碼（留空自動產生強密碼）；以 UTF-8（無 BOM）寫出。
-3. 用 `openssl` 產生自簽 TLS 憑證，透過一次性 Alpine 容器注入 `<專案>_certs_data` volume。
+3. 以 .NET 內建 X509 API 產生自簽 TLS 憑證（匯出 PFX），透過一次性 Alpine 容器
+   轉成 PEM 並注入 `<專案>_certs_data` volume（憑證產生不需主機裝 openssl）。
 4. `docker compose -f docker-compose.prod.yml -p <專案> up -d --build` 建置並啟動。
 5. 等待後端健康檢查（`https://localhost/health`），印出存取資訊。
 
@@ -196,7 +198,7 @@ Get-Content backup_2026-06-10.sql | docker exec -i workflow-db-1 psql -U workflo
 |------|------|
 | `install.ps1` 無法執行（被擋） | 先執行 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` |
 | 腳本報「Docker daemon 未回應」 | 開啟 Docker Desktop，等狀態列顯示 Running 再重跑 |
-| 腳本報找不到 `openssl` | 安裝 Git for Windows（腳本會自動探測其內建 openssl）；非標準路徑安裝才需手動加入 PATH |
+| 憑證注入步驟失敗 | 確認 Docker daemon 正常（轉檔在一次性 Alpine 容器內進行）；`docker pull alpine` 測試可連 registry |
 | `https://localhost` 連不上 | `... -p workflow ps` 看服務是否 Up；`logs nginx` 看憑證是否存在 |
 | 改了 `.env` 沒生效 | 需 `down` 再 `up -d`（重建容器才會讀新環境變數） |
 | 80/443 被占用 | 關閉占用該埠的程式（如 IIS、其他 nginx），或改 compose 對外埠 |
