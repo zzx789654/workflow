@@ -9,6 +9,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.api.v1 import router as v1_router
 from app.core.config import settings
@@ -38,7 +39,13 @@ async def _ensure_superadmin() -> None:
             auth_source="local",
         )
         db.add(admin)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            # 多 worker（uvicorn --workers N）首次啟動時可能同時通過上面的
+            # 存在性檢查並各自 INSERT；後到者會撞 username/email unique constraint。
+            # 此時代表另一個 worker 已建好 admin，視為成功、回滾本次即可。
+            await db.rollback()
 
 
 async def _auto_archive_loop() -> None:  # pragma: no cover - 無窮排程迴圈，核心 run_auto_archive 已另行單元測

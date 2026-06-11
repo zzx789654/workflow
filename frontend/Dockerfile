@@ -1,7 +1,10 @@
 FROM node:20-alpine AS development
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+# 刪掉 lockfile 後重裝：lockfile 在非 musl 平台產生、未記錄
+# @rollup/rollup-linux-x64-musl，npm ci 會嚴格照 lockfile 而漏裝原生套件
+# （npm/cli#4828）。移除 lockfile 讓 npm 依當前平台(Alpine/musl)重解 optional deps。
+RUN rm -f package-lock.json && npm install
 COPY . .
 EXPOSE 5173
 CMD ["npm", "run", "dev"]
@@ -9,7 +12,9 @@ CMD ["npm", "run", "dev"]
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+# 同上：移除 lockfile 後 npm install，確保 musl 平台的 rollup 原生套件被解出，
+# 否則 vite build 會因找不到 @rollup/rollup-linux-x64-musl 而失敗。
+RUN rm -f package-lock.json && npm install
 COPY . .
 # 同源部署預設為空字串（走相對 /api 與同源 wss）；可由 compose build args 覆寫
 ARG VITE_API_URL=""
