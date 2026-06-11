@@ -73,21 +73,29 @@ function New-StrongPassword {
     ($b64.Substring(0, [Math]::Min(20, $b64.Length))) + "A1"
 }
 function Read-SecretOrGenerate($prompt) {
-    # 空輸入則自動產生一組強密碼（對應 install.sh 的 prompt_secret_pw）
+    # 空輸入則自動產生一組強密碼（對應 install.sh 的 prompt_secret_pw）。
+    # 回傳物件含 Generated 旗標：唯有「本次自動產生」的密碼才會在結尾回顯，
+    # 使用者自訂的密碼不回顯（避免無謂洩漏）。
     $sec = Read-Host -AsSecureString "$prompt（留空自動產生）"
     $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR(
         [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
-    if ([string]::IsNullOrEmpty($plain)) { return New-StrongPassword }
-    return $plain
+    if ([string]::IsNullOrEmpty($plain)) {
+        return [pscustomobject]@{ Value = (New-StrongPassword); Generated = $true }
+    }
+    return [pscustomobject]@{ Value = $plain; Generated = $false }
 }
 
 # ── 2. 產生 .env（含強密鑰）────────────────────────────────────
+# 供完成提示使用：本次若自動產生 admin 密碼，於結尾明確印出帳號與密碼。
+$GeneratedAdminEmail = $null
+$GeneratedAdminPass  = $null
 if (Test-Path $EnvFile) {
     Write-WarnMsg ".env 已存在，沿用現有設定（如需重設請先備份並刪除）"
 } else {
     Write-Info "建立 .env（自動產生 SECRET_KEY / SETTINGS_ENCRYPT_KEY）…"
-    $DbPass     = Read-SecretOrGenerate "設定資料庫密碼"
-    $AdminPass  = Read-SecretOrGenerate "設定管理員(admin)密碼"
+    $DbPass     = (Read-SecretOrGenerate "設定資料庫密碼").Value
+    $AdminCred  = Read-SecretOrGenerate "設定管理員(admin)密碼"
+    $AdminPass  = $AdminCred.Value
     $AdminEmail = Read-Host "管理員 Email（預設 admin@$Domain）"
     if ([string]::IsNullOrWhiteSpace($AdminEmail)) { $AdminEmail = "admin@$Domain" }
 
@@ -114,6 +122,12 @@ SETTINGS_ENCRYPT_KEY=$(New-Secret)
     # 以 UTF-8（無 BOM）寫出，確保 docker compose / Linux 容器可正確讀取
     [System.IO.File]::WriteAllText($EnvFile, $envContent, (New-Object System.Text.UTF8Encoding($false)))
     Write-Ok ".env 已建立"
+
+    if ($AdminCred.Generated) {
+        # 僅在「本次自動產生」時記下，供結尾回顯（使用者自訂的密碼不回顯）
+        $GeneratedAdminEmail = $AdminEmail
+        $GeneratedAdminPass  = $AdminPass
+    }
 }
 
 # ── 3. 產生自簽憑證並注入 certs volume ────────────────────────
@@ -206,8 +220,26 @@ Write-Ok "部署完成"
 Write-Host @"
 
   存取網址：   https://$Domain/   （或 https://<本機 IP>/）
-  管理員帳號： 部署時設定的 Email @ 前綴為登入帳號
-               例：admin@$Domain → 登入帳號 admin
+"@
+
+if ($GeneratedAdminPass) {
+    # 本次自動產生密碼 → 明確印出帳號與密碼（之後請立即登入改密碼）
+    $loginUser = if ($GeneratedAdminEmail -match "@") { $GeneratedAdminEmail.Split("@")[0] } else { $GeneratedAdminEmail }
+    Write-Host ""
+    Write-Host "  ┌─ 管理員登入資訊（本次自動產生，請妥善保存）─────────" -ForegroundColor Cyan
+    Write-Host "  │  登入帳號：$loginUser" -ForegroundColor Cyan
+    Write-Host "  │  登入密碼：$GeneratedAdminPass" -ForegroundColor Cyan
+    Write-Host "  │  （亦存於專案根目錄 .env 的 FIRST_SUPERADMIN_PASSWORD）" -ForegroundColor Cyan
+    Write-Host "  └────────────────────────────────────────────────────" -ForegroundColor Cyan
+    Write-WarnMsg "首次登入後請立即修改密碼（設定 → 修改密碼）。"
+} else {
+    Write-Host @"
+  管理員帳號： 部署時設定的 Email @ 前綴為登入帳號（例：admin@$Domain → admin）
+               密碼存於專案根目錄 .env 的 FIRST_SUPERADMIN_PASSWORD
+"@
+}
+
+Write-Host @"
 
 [WARN] 自簽憑證提醒
   瀏覽器首次連線會顯示「不安全」告警，這是自簽憑證的正常現象。
