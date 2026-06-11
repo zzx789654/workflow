@@ -12,6 +12,7 @@
 - [選擇部署方式](#選擇部署方式)
 - [方式 A — Docker 部署](#方式-a--docker-部署)
 - [方式 B — Ubuntu 裸機部署（非 Docker）](#方式-b--ubuntu-裸機部署非-docker)
+- [方式 C — Windows Docker 部署](#方式-c--windows-docker-部署)
 - [首次登入（兩種方式通用）](#首次登入兩種方式通用)
 - [認證方式（本地 / LDAP / RADIUS）](#認證方式本地--ldap--radius)
 - [更換 TLS 憑證（兩種方式通用）](#更換-tls-憑證兩種方式通用)
@@ -23,20 +24,23 @@
 
 ## 選擇部署方式
 
-兩種方式擇一即可。都會自動產生強密鑰、建立管理者帳號，完成時印出 admin 登入密碼；
-都是 nginx 唯一對外（80/443），DB/Redis/backend 不對外暴露。
+三種方式擇一即可。都會自動產生強密鑰、建立管理者帳號，完成時印出 admin 登入密碼；
+都是 nginx 唯一對外（80/443），DB/Redis/backend 不對外暴露。方式 A 與方式 C 用的是
+**同一份** `docker-compose.prod.yml`，只是安裝腳本依作業系統不同（bash / PowerShell）。
 
-| | 方式 A：Docker | 方式 B：Ubuntu 裸機 |
-|---|---|---|
-| 安裝腳本 | `install.sh` | `install-native.sh` |
-| 相依 | 只需 Docker Engine | apt 系統套件 + Python venv |
-| 服務管理 | Docker Compose 容器 | systemd 原生服務 |
-| 隔離 | 容器隔離 | systemd 強化 + 服務隔離 |
-| 升級 | 重 build image | `git pull` + 重跑腳本 |
-| 適用 | 多環境一致、易遷移 | 單機長期運行、用系統原生服務、較省資源 |
+| | 方式 A：Linux Docker | 方式 B：Ubuntu 裸機 | 方式 C：Windows Docker |
+|---|---|---|---|
+| 安裝腳本 | `install.sh` | `install-native.sh` | `install.ps1` |
+| 作業系統 | Linux（Ubuntu 24.04） | Ubuntu 24.04 | Windows 10/11、Server 2022 |
+| 相依 | Docker Engine | apt 系統套件 + Python venv | Docker Desktop + Git for Windows |
+| 服務管理 | Docker Compose 容器 | systemd 原生服務 | Docker Compose 容器 |
+| 隔離 | 容器隔離 | systemd 強化 + 服務隔離 | 容器隔離（WSL2 後端） |
+| 升級 | 重 build image | `git pull` + 重跑腳本 | 重 build image |
+| 適用 | 多環境一致、易遷移 | 單機長期運行、較省資源 | 開發機 / Windows 環境快速試跑 |
 
-> 共同需求：Ubuntu 24.04、能 `sudo` 的帳號、對外開放 80/443、主機可連外。
-> 建議 2 vCPU / 4 GB RAM 以上（首次會在主機上 build，較吃資源）。
+> 共同需求：對外開放 80/443、主機可連外、建議 2 vCPU / 4 GB RAM 以上
+> （首次會在主機上 build，較吃資源）。
+> 方式 A／B 需 Ubuntu 24.04、能 `sudo` 的帳號；方式 C 需已安裝並啟動的 Docker Desktop。
 
 ---
 
@@ -117,6 +121,88 @@ cat backup_2026-06-10.sql | docker exec -i <專案>-db-1 psql -U workflow -d wor
 | 後端一直不健康 | `logs backend`；常見為 `.env` 的 DB 密碼與 db 服務不一致，或 migration 失敗 |
 | 改了 `.env` 沒生效 | 需 `down` 再 `up -d`（重建容器才會讀新環境變數） |
 | 想換網域 | 改 `.env` 的 `CORS_ORIGINS`，重新上傳對應網域憑證，`up -d` |
+
+---
+
+## 方式 C — Windows Docker 部署
+
+在 Windows 上用 **Docker Desktop** 跑同一套 production 容器（前端、後端、PostgreSQL、
+Redis、nginx），由 PowerShell 腳本 `install.ps1` 一鍵部署，對應 Linux 的 `install.sh`。
+
+### C-0. 前置需求（一次性）
+
+1. **Docker Desktop**：安裝後開啟，等待右下角狀態顯示 **Running**。
+   建議用 WSL2 後端（Settings → General → Use the WSL 2 based engine）。
+2. **Git for Windows**：內含部署所需的 `openssl`（用來產生自簽憑證）。
+   裝好即可——腳本會自動探測 Git 內建的 `openssl`，不必手動加入 PATH。
+3. **允許執行腳本**：若 PowerShell 擋下 `install.ps1`，於**目前工作階段**放行（不改全域設定）：
+
+   ```powershell
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   ```
+
+### C-1. 部署步驟
+
+```powershell
+# 1) 取得程式碼
+git clone https://github.com/zzx789654/workflow.git workflow
+cd workflow
+
+# 2) 一鍵部署（一般使用者即可，無需系統管理員）
+.\install.ps1
+
+# 可選：指定網域（憑證 CN 與 CORS 會用它）
+.\install.ps1 -Domain workflow.example.com
+```
+
+腳本依序（與 `install.sh` 等價、冪等可重跑）：
+
+1. 偵測 Docker Desktop 是否安裝且 daemon 已啟動、`docker compose` 可用、`openssl` 在 PATH。
+2. 建立 `.env`：以 .NET 亂數產生 `SECRET_KEY` / `SETTINGS_ENCRYPT_KEY`，
+   設定資料庫密碼與管理員密碼（留空自動產生強密碼）；以 UTF-8（無 BOM）寫出。
+3. 用 `openssl` 產生自簽 TLS 憑證，透過一次性 Alpine 容器注入 `<專案>_certs_data` volume。
+4. `docker compose -f docker-compose.prod.yml -p <專案> up -d --build` 建置並啟動。
+5. 等待後端健康檢查（`https://localhost/health`），印出存取資訊。
+
+完成後瀏覽 `https://localhost/`（或 `https://<本機 IP>/`）。
+
+> **架構與方式 A 完全相同**（見 [A-2. 架構](#a-2-架構)）：只有 nginx 對外，
+> DB/Redis/backend 都在 compose 內網；憑證放共享 volume，可於前端設定頁熱更換。
+
+### C-2. 日常維運（PowerShell）
+
+```powershell
+# 服務狀態 / 日誌（<專案> 為資料夾名，預設 workflow）
+docker compose -f docker-compose.prod.yml -p workflow ps
+docker compose -f docker-compose.prod.yml -p workflow logs -f
+docker compose -f docker-compose.prod.yml -p workflow logs -f backend
+
+# 停止 / 啟動
+docker compose -f docker-compose.prod.yml -p workflow down
+docker compose -f docker-compose.prod.yml -p workflow up -d
+
+# 更新版本（拉新程式碼後重建）
+git pull
+docker compose -f docker-compose.prod.yml -p workflow up -d --build
+
+# 資料庫備份 / 還原（容器名 workflow-db-1，可用 docker ps 確認）
+docker exec workflow-db-1 pg_dump -U workflow workflow_db > "backup_$(Get-Date -Format yyyy-MM-dd).sql"
+Get-Content backup_2026-06-10.sql | docker exec -i workflow-db-1 psql -U workflow -d workflow_db
+```
+
+### C-3. Windows 疑難排解
+
+| 症狀 | 處理 |
+|------|------|
+| `install.ps1` 無法執行（被擋） | 先執行 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` |
+| 腳本報「Docker daemon 未回應」 | 開啟 Docker Desktop，等狀態列顯示 Running 再重跑 |
+| 腳本報找不到 `openssl` | 安裝 Git for Windows（腳本會自動探測其內建 openssl）；非標準路徑安裝才需手動加入 PATH |
+| `https://localhost` 連不上 | `... -p workflow ps` 看服務是否 Up；`logs nginx` 看憑證是否存在 |
+| 改了 `.env` 沒生效 | 需 `down` 再 `up -d`（重建容器才會讀新環境變數） |
+| 80/443 被占用 | 關閉占用該埠的程式（如 IIS、其他 nginx），或改 compose 對外埠 |
+
+> 方式 C 與方式 A 產出的 `.env`、憑證、volume 結構一致，
+> 同一台主機切換 Linux/Windows 維運不需重建資料。
 
 ---
 
