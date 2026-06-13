@@ -8,8 +8,6 @@ import sys
 import types
 from unittest.mock import MagicMock
 
-import pytest
-
 from app.core.auth_backends import ldap_auth
 from app.core.auth_backends.ldap_auth import (
     LdapOu,
