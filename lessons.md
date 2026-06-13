@@ -1,3 +1,115 @@
+## [2026-06-12] 輪結 Round 19 — G11 AD 使用者同步 + 有 DN 自動歸 OU
+
+- 現況：**G1✅ G2✅ G3✅ G4✅ G5✅（本地 CI gate 全綠）；下一步 = G6（migration 021 上線需使用者確認）**
+- PM：使用者確認「有 DN 自動帶入歸 OU、沒 DN 單純同步使用者」+「同步 AD 帳號/姓名/Email/部門/職位，登入時走遠端驗證」+ AD 消失本地停用
+- Dev：
+  - migration 021：users 加 external_id（DN）
+  - ldap_auth.list_users：paged_search user 物件，取 DN/sAMAccountName/displayName/mail/title
+  - ad_sync._apply_users：預建/更新 AD 使用者（auth_source=ldap、placeholder 密碼）→ 有 DN 父 OU 對應則歸屬（不覆蓋手動）→ AD 消失停用；_apply_ous 改回傳 (summary, norm_to_unit) 供歸屬
+  - schema/endpoint/前端 type：AdSyncResult 加 users_created/updated/deactivated
+- Sec：Critical_0/High_0/Medium_0；佔位密碼不可本地登入（登入必走遠端）、來源互斥不接管 local、admin only、只讀不寫回、DN 經 dn_utils。達標
+- QA：385 passed（AD 同步測試擴至 24 個，含 user 預建/歸屬/無對應/手動不覆蓋/消失停用/login 銜接/互斥/AD換OU重歸）；覆蓋率 96.34% ≥95%；ruff 全綠；前端 build 過
+- 退回事件：無；自測攔下 schema 缺 user 欄位（KeyError）即補
+- 過關狀態：G1✅ G2✅ G3✅ G4✅ G5✅ G6⏳
+
+### 教訓 / 準則
+
+**教訓 81：目錄同步預建的「免密碼」帳號，用無效 hash 當佔位、靠來源互斥擋本地登入**
+- 情境：同步預建 AD 使用者不該存可用密碼，但 User.hashed_password 非空；若塞真 bcrypt hash 會開後門，塞空字串則 verify 行為不定
+- 準則：佔位密碼用一個「絕不可能是 bcrypt 輸出」的固定字串（如 `__remote_auth__`）；login 對非 local 帳號一律走遠端驗證、對 local 才 verify_password——兩者疊加確保佔位帳號只能遠端登入。並驗證「佔位密碼本地登入必 401」
+- **How to apply：** 任何「預建/匯入但不存密碼」的帳號，用無效 hash 佔位 + 認證流程依 auth_source 分流，且寫一條「佔位密碼登不進」的測試
+
+**教訓 82：把多階段同步的 commit 收斂到最外層，子函式只 flush**
+- 情境：原 _apply_ous 自己 commit；加上 _apply_users 後變兩階段，各自 commit 會讓「使用者歸屬」與「OU 建立」不在同一交易，中途失敗易半套
+- 準則：多階段寫入（建樹→掛人）讓子函式只 db.flush()（拿 id），由最外層 orchestrator 統一 commit；子函式回傳必要對應表（如 norm_to_unit）給下一階段
+- **How to apply：** 重構「A 階段產出餵 B 階段」的同步流程時，commit 上移、子函式回傳中間結果
+
+### 過程原始輸出位置
+- 後端新檔：alembic/versions/021_user_external_id.py
+- 後端改檔：app/models/user.py（external_id）、app/core/auth_backends/ldap_auth.py（list_users/LdapUserEntry）、app/core/ad_sync.py（_apply_users/_can_auto_assign、_apply_ous 回傳對應表）、app/schemas/org.py + app/api/v1/endpoints/org_units.py（AdSyncResult user 欄位）、tests/test_ad_sync.py（+user 測試）
+- 前端改檔：types/index.ts（AdSyncResult user 欄位）
+- 詳細驗收與判斷機制：待修改.md G11 區段
+
+---
+
+## [2026-06-12] 輪結 Round 18 — G10 AD/OU 組織樹同步（與手動並行）+ 各版本 AD 相容性
+
+- 現況：**G1✅ G2✅ G3✅ G4✅ G5✅（本地 CI gate 模擬全綠）；下一步 = G6（migration 020 上線需使用者確認）**
+- PM：使用者確認 OU 階層展樹、手動+每日自動、AD 只碰 AD 來源不覆蓋手動、OU 消失標停用、沿用現有 bind 服務帳號；追加要求「各版本 Windows AD OU 格式落差自動相容」
+- Dev：
+  - migration 020：org_units 加 source/external_id/is_active（並行隔離 + 冪等鍵 + 停用標記）
+  - core/ad_sync.py：list_ous → DN 解析組樹 → 冪等 upsert（source=ad）→ 消失標停用
+  - core/dn_utils.py（相容層）：split_rdns（尊重跳脫）/normalize_dn（大小寫無關比對鍵）/ou_depth/name_from_dn
+  - ldap_auth.list_ous：paged_search（>1000 OU）+ ou/name/DN 多來源取名
+  - endpoints POST /org-units/sync-ad（admin only）；main.py lifespan 每日 01:00 自動同步
+  - 前端：組織管理頁「立即同步 AD」按鈕 + AD/已停用標籤 + AD 單位層級唯讀（只開放指派主管）
+- Sec：Critical_0/High_0/Medium_0；admin only、ldap3 參數化、只讀不寫回 AD、憑證加密儲存不外洩、fail-safe（連線失敗不動資料）、並行隔離（manual 不被動）。達標
+- QA：377 passed（新增 14 個 ad_sync/dn_utils 測試）；覆蓋率 96.84% ≥95%；ad_sync 97%、dn_utils 96%；ruff 全綠；前端 build 通過
+- 退回事件：無正式退回；自測攔下 dn_utils 大小寫/跳脫 bug（見教訓 78）；誠實揭露使用者自動歸屬未實作（User 未存 DN）
+- 過關狀態：G1✅ G2✅ G3✅ G4✅ G5✅ G6⏳
+
+### 教訓 / 準則
+
+**教訓 78：解析 LDAP/AD DN 一律經正規化層，別用裸 split(",")**
+- 情境：AD 各版本/工具匯出的 DN 大小寫不一（OU=/ou=、DC 值大小寫）、OU 名含逗號會跳脫成 `\,`；裸 `dn.split(",")` 會把假逗號切錯、大小寫不一讓父子 DN 接不起來（樹斷成多個頂層）、冪等比對失效（同 OU 因大小寫被當新單位重建）
+- 準則：DN 處理集中到一個 dn_utils：(1) split_rdns 尊重反斜線跳脫切 RDN；(2) normalize_dn 把屬性名與值都轉小寫當「比對鍵」（原樣 DN 另存 external_id 不回寫）；(3) 取名解跳脫。比對父子、冪等對應一律用正規化鍵，不用原始字串
+- **How to apply：** 任何「拿 DN 比對/組樹/當唯一鍵」的程式，先過 normalize_dn；存 DB 存原樣、比對用正規化
+
+**教訓 79：LDAP search 大型目錄要 paged_search，否則被 MaxPageSize 截斷**
+- 情境：AD 預設 MaxPageSize=1000，OU 或使用者超過時，普通 conn.search 只回前 1000 筆且不報錯，同步會「靜默缺資料」
+- 準則：列舉可能 >1000 筆的 LDAP 查詢用 `conn.extend.standard.paged_search(..., paged_size=500)`；別用單次 search
+- **How to apply：** 任何「列出整個 OU/群組/使用者」的 LDAP 查詢都走 paged_search
+
+**教訓 80：對外整合的「自動帶資料」承諾，先確認來源資料是否真的存在**
+- 情境：原設計承諾「AD 帳號自動帶部門歸屬」，實作時才發現要靠每個使用者的 DN，但現有登入流程只存 display_name/email、沒存 DN，做不到——若硬湊會把人錯掛單位
+- 準則：規劃對外整合的自動化前，先確認所依賴的來源欄位在系統裡真的有；沒有就誠實標為未實作/另開一輪，不臆測填值（寧可 no-op 回 0 也不錯掛）
+- **How to apply：** 設計「依 X 自動帶 Y」時，先查 X 是否已被保存；缺則先補資料來源再做自動化
+
+### 過程原始輸出位置
+- 後端新檔：app/core/ad_sync.py、app/core/dn_utils.py、alembic/versions/020_*.py、tests/test_ad_sync.py
+- 後端改檔：app/models/org.py、app/schemas/org.py、app/core/auth_backends/ldap_auth.py（list_ous）、app/api/v1/endpoints/org_units.py（sync-ad）、app/main.py（_ad_sync_loop）
+- 前端改檔：types/index.ts、api/org.ts、pages/SettingsPage.tsx（OrgTab 同步 UI）
+- 詳細驗收與已知限制：待修改.md G10 區段
+
+---
+
+## [2026-06-12] 輪結 Round 17 — G09 組織階層 + 主管部門日曆堆疊檢視 + 多欄位編輯
+
+- 現況：**G1✅ G2✅ G3✅ G4✅ G5✅（本地 CI gate 模擬全綠）；下一步 = G6（migration 019 上線需使用者確認）**
+- PM：使用者確認任意多層樹狀組織、可視範圍「自動繼承(manager)+admin grant」並用、沿用 admin 編輯、依人員上色+圖例勾選、組織單位設 manager 欄位、接受 DB 變更
+- Dev：
+  - 後端：models/org.py（OrgUnit 自我參照鄰接表 + UserCalendarGrant）；User 加 org_unit_id/position；migration 019（2 表 + users 2 欄）；core/visibility.py（可視範圍解析 = 自管子樹∪grant子樹，應用層 BFS）；endpoints org_units.py（admin CRUD+防成環）、users.py（/{id}/org + calendar-grants）、calendar.py（include_team 堆疊 + user/color）
+  - 前端：CalendarPage 堆疊多色 + 人員圖例逐人勾選顯示/隱藏 + 「堆疊團隊」開關；SettingsPage 新增「組織管理」Tab（樹狀 CRUD + 指派主管）+ 使用者管理展開列編輯部門/課別/職位 + 日曆額外授權
+- Sec：Critical_0 / High_0 / Medium_0；A01 越權逐項（IDOR/欄位竄改/grant 僅 admin 全測）；成環防護；SET NULL 孤兒化；無硬編碼密鑰。達標
+- QA：363 passed（新增 25 個 org/calendar 測試）；覆蓋率 97.22% ≥95%；org.py/schemas/users.py 100%、visibility.py 97%；ruff check+format 全綠；前端 builder image build 通過
+- 退回事件：無正式退回，但 G2/G3 自測過程攔下 2 個真實設計缺陷（見教訓 75/76）+ 順手修 2 個既存問題
+- 過關狀態：G1✅ G2✅ G3✅ G4✅ G5✅ G6⏳
+
+### 教訓 / 準則
+
+**教訓 75：兩個 table 互相 FK（mutual FK）必須用 use_alter=True + 具名約束**
+- 情境：users.org_unit_id → org_units、org_units.manager_user_id → users 互相參照，conftest 的 Base.metadata.drop_all 報 CircularDependencyError 無法排序 DROP
+- 準則：互相 FK 的兩側都加 `ForeignKey(..., use_alter=True, name="fk_...")`，讓 SQLAlchemy 以獨立 ALTER TABLE 建立/卸除約束，化解 create/drop 排序循環
+- **How to apply：** 任何兩表互指（A.x→B、B.y→A）一律在至少一側（保險起見兩側）FK 加 use_alter + name；改 schema 後務必清掉殘留 test DB 再跑（舊表無具名約束會讓 use_alter DROP 找不到約束）
+
+**教訓 76：要 DB 層 SET NULL 行為時，ORM relationship 不可留 cascade=all,delete-orphan**
+- 情境：org_units 自我參照 children 關聯設了 `cascade="all, delete-orphan"`，`db.delete(parent)` 時 ORM 主動載入子列並刪除，蓋過 DB FK 的 ondelete=SET NULL，導致刪父單位連帶刪掉整棵子樹（設計是要子單位升頂層）
+- 準則：當設計意圖是「刪父、子保留並 SET NULL」時，relationship 用 `passive_deletes=True`（不主動載入子列，交給 DB FK 處理），且**不要**加 delete-orphan cascade
+- **How to apply：** 決定刪除行為時，先想清楚要 ORM cascade 還是 DB ondelete；兩者衝突時以實測（建父子→刪父→查子是否還在）驗證，別只看程式碼推斷
+
+**教訓 77：前端缺 .dockerignore 會讓 docker build context 含 host node_modules 壞符號連結**
+- 情境：frontend 無 .dockerignore，`docker build` 把 host（Windows 上 npm install 的）node_modules 一起送進 context，內含 .bin/acorn 等對 Linux 無效的符號連結，build 直接報 "invalid file request"
+- 準則：所有有 Dockerfile 的前端目錄都要有 .dockerignore 排除 node_modules/dist；builder stage 自己 npm install，不需要也不該帶 host 的
+- **How to apply：** 新增前端 Docker 化專案時，.dockerignore 與 Dockerfile 一起建立
+
+### 過程原始輸出位置
+- 後端新檔：app/models/org.py、app/core/visibility.py、app/schemas/org.py、app/api/v1/endpoints/org_units.py、alembic/versions/019_*.py、tests/test_org_calendar.py
+- 後端改檔：app/models/user.py、app/models/__init__.py、app/schemas/user.py、app/api/v1/endpoints/users.py、app/api/v1/endpoints/calendar.py、app/api/v1/__init__.py
+- 前端新檔：src/api/org.ts、frontend/.dockerignore；改檔：types/index.ts、api/calendar.ts、api/users.ts、pages/CalendarPage.tsx、pages/SettingsPage.tsx
+- 詳細驗收與關卡狀態：待修改.md G09 區段
+
+---
+
 ## [2026-06-09] 輪結 Round 16 — 後端測試覆蓋率 50.80%→67%（進行中，目標 90%）
 
 - 現況：**覆蓋率 67%、196 測試全綠、CI gate 調至 65%；下一步 = 繼續補測至 90%（見 待修改.md G04 接續點）**

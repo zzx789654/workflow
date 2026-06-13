@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { useThemeStore, PALETTES, FX_OPTIONS, MODE_OPTIONS } from '../stores/themeStore'
 import { authApi } from '../api/auth'
-import type { User } from '../types'
+import { orgApi } from '../api/org'
+import { usersApi as usersApiClient } from '../api/users'
+import type { User, OrgUnit, CalendarGrant } from '../types'
 
 // ── API helpers ───────────────────────────────────────────────
 import { api } from '../api/client'
@@ -19,7 +21,7 @@ const usersApi = {
     api.post('/auth/change-password', { old_password: oldPw, new_password: newPw }),
 }
 
-type Tab = 'profile' | 'appearance' | 'users' | 'system' | 'system_config'
+type Tab = 'profile' | 'appearance' | 'users' | 'org' | 'system' | 'system_config'
 
 const ROLE_LABELS: Record<string, string> = { admin: '管理員', member: '一般成員', viewer: '一般成員' }
 const ROLE_COLORS: Record<string, string> = {
@@ -222,17 +224,116 @@ function AppearanceTab() {
   )
 }
 
+// ── 使用者組織歸屬 / 日曆授權編輯（展開列，Admin only）──────────
+function UserOrgEditor({ user, units, onChanged }: { user: User; units: OrgUnit[]; onChanged: () => void }) {
+  const [position, setPosition] = useState(user.position ?? '')
+  const [grants, setGrants] = useState<CalendarGrant[]>([])
+  const [grantUnit, setGrantUnit] = useState('')
+  const [msg, setMsg] = useState('')
+
+  // 縮排組樹供下拉
+  const treeOptions = (() => {
+    const byParent: Record<string, OrgUnit[]> = {}
+    for (const u of units) (byParent[u.parent_id ?? 'root'] ??= []).push(u)
+    const out: { unit: OrgUnit; depth: number }[] = []
+    const walk = (p: string, d: number) => {
+      for (const u of (byParent[p] ?? []).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))) {
+        out.push({ unit: u, depth: d }); walk(u.id, d + 1)
+      }
+    }
+    walk('root', 0)
+    return out
+  })()
+  const unitName = (id: string) => units.find(u => u.id === id)?.name ?? id
+
+  const loadGrants = async () => {
+    const r = await usersApiClient.listGrants(user.id)
+    setGrants(r.data)
+  }
+  useEffect(() => { loadGrants() }, [user.id])
+
+  const saveUnit = async (orgUnitId: string) => {
+    setMsg('')
+    try {
+      await usersApiClient.updateOrg(user.id, { set_org_unit: true, org_unit_id: orgUnitId || null })
+      onChanged()
+    } catch (err: any) { setMsg(err?.response?.data?.detail ?? '更新失敗') }
+  }
+  const savePosition = async () => {
+    setMsg('')
+    try {
+      await usersApiClient.updateOrg(user.id, { set_position: true, position: position.trim() || null })
+      onChanged()
+    } catch (err: any) { setMsg(err?.response?.data?.detail ?? '更新失敗') }
+  }
+  const addGrant = async () => {
+    if (!grantUnit) return
+    try { await usersApiClient.addGrant(user.id, grantUnit); setGrantUnit(''); loadGrants() }
+    catch (err: any) { setMsg(err?.response?.data?.detail ?? '授權失敗') }
+  }
+  const removeGrant = async (g: CalendarGrant) => {
+    await usersApiClient.removeGrant(user.id, g.id); loadGrants()
+  }
+
+  return (
+    <div className="mt-2 ml-12 mr-2 p-3 bg-gray-50 rounded-xl space-y-3 text-sm">
+      <div className="grid grid-cols-[80px_1fr] gap-2 items-center">
+        <label className="text-xs text-gray-500">部門 / 課別</label>
+        <select className="input text-sm" value={user.org_unit_id ?? ''} onChange={e => saveUnit(e.target.value)}>
+          <option value="">（未指派）</option>
+          {treeOptions.map(({ unit, depth }) => (
+            <option key={unit.id} value={unit.id}>{'　'.repeat(depth)}{unit.name}</option>
+          ))}
+        </select>
+        <label className="text-xs text-gray-500">職位</label>
+        <div className="flex gap-2">
+          <input className="input text-sm flex-1" value={position} placeholder="例：資深工程師"
+            onChange={e => setPosition(e.target.value)} onBlur={savePosition} />
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs text-gray-500 mb-1.5">額外日曆授權（可檢視這些單位含子樹的日常作業）</p>
+        <div className="flex gap-2 flex-wrap mb-2">
+          {grants.length === 0 && <span className="text-xs text-gray-400">無額外授權</span>}
+          {grants.map(g => (
+            <span key={g.id} className="text-xs bg-white border border-gray-200 rounded-full px-2 py-0.5 flex items-center gap-1">
+              {unitName(g.org_unit_id)}
+              <button onClick={() => removeGrant(g)} className="text-red-400 hover:text-red-600">×</button>
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <select className="input text-sm flex-1" value={grantUnit} onChange={e => setGrantUnit(e.target.value)}>
+            <option value="">選擇要授權的單位…</option>
+            {treeOptions.map(({ unit, depth }) => (
+              <option key={unit.id} value={unit.id}>{'　'.repeat(depth)}{unit.name}</option>
+            ))}
+          </select>
+          <button className="btn-secondary text-sm" onClick={addGrant} disabled={!grantUnit}>授權</button>
+        </div>
+      </div>
+      {msg && <p className="text-red-500 text-xs">{msg}</p>}
+    </div>
+  )
+}
+
 // ── 使用者管理 Tab（Admin only）────────────────────────────────
 function UsersTab() {
   const me = useAuthStore(s => s.user)
   const [users, setUsers] = useState<User[]>([])
+  const [units, setUnits] = useState<OrgUnit[]>([])
   const [loading, setLoading] = useState(true)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const load = async () => {
     setLoading(true)
-    try { const r = await usersApi.list(); setUsers(r.data) }
-    finally { setLoading(false) }
+    try {
+      const [r, o] = await Promise.all([usersApi.list(), orgApi.list()])
+      setUsers(r.data)
+      setUnits(o.data)
+    } finally { setLoading(false) }
   }
   useEffect(() => { load() }, [])
 
@@ -248,6 +349,8 @@ function UsersTab() {
     load()
   }
 
+  const unitName = (id: string | null) => units.find(u => u.id === id)?.name ?? null
+
   if (loading) return <div className="text-gray-400 py-8 text-center">載入中…</div>
 
   return (
@@ -258,40 +361,234 @@ function UsersTab() {
       </div>
       <div className="space-y-2">
         {users.map(u => (
-          <div key={u.id} className="flex items-center gap-3 p-3 bg-white border border-gray-100 rounded-xl">
-            <div className="w-9 h-9 rounded-full bg-primary-500 text-white flex items-center justify-center font-medium flex-shrink-0">
-              {u.display_name.charAt(0).toUpperCase()}
+          <div key={u.id}>
+            <div className="flex items-center gap-3 p-3 bg-white border border-gray-100 rounded-xl">
+              <div className="w-9 h-9 rounded-full bg-primary-500 text-white flex items-center justify-center font-medium flex-shrink-0">
+                {u.display_name.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">{u.display_name}</p>
+                <p className="text-xs text-gray-400 truncate">
+                  {[unitName(u.org_unit_id), u.position, u.email].filter(Boolean).join(' · ') || '—'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {me?.role === 'admin' ? (
+                  <>
+                    <button
+                      onClick={() => setExpandedId(expandedId === u.id ? null : u.id)}
+                      className="text-xs text-primary-600 hover:text-primary-700"
+                    >{expandedId === u.id ? '收合' : '編輯歸屬'}</button>
+                    {u.id !== me?.id && (
+                      <>
+                        <select
+                          className="text-xs border border-gray-200 rounded px-2 py-1"
+                          value={u.role}
+                          disabled={updatingId === u.id}
+                          onChange={e => handleRoleChange(u.id, e.target.value)}
+                        >
+                          <option value="admin">管理員</option>
+                          <option value="member">一般成員</option>
+                        </select>
+                        <button
+                          onClick={() => handleDeactivate(u.id, u.display_name)}
+                          className="text-xs text-red-400 hover:text-red-600"
+                        >停用</button>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS[u.role]}`}>
+                    {ROLE_LABELS[u.role]}
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{u.display_name}</p>
-              <p className="text-xs text-gray-400 truncate">{u.email}</p>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {me?.role === 'admin' && u.id !== me?.id ? (
-                <>
-                  <select
-                    className="text-xs border border-gray-200 rounded px-2 py-1"
-                    value={u.role}
-                    disabled={updatingId === u.id}
-                    onChange={e => handleRoleChange(u.id, e.target.value)}
-                  >
-                    <option value="admin">管理員</option>
-                    <option value="member">一般成員</option>
-                  </select>
-                  <button
-                    onClick={() => handleDeactivate(u.id, u.display_name)}
-                    className="text-xs text-red-400 hover:text-red-600"
-                  >停用</button>
-                </>
-              ) : (
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS[u.role]}`}>
-                  {ROLE_LABELS[u.role]}
-                </span>
-              )}
-            </div>
+            {expandedId === u.id && me?.role === 'admin' && (
+              <UserOrgEditor user={u} units={units} onChanged={load} />
+            )}
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// ── 組織管理 Tab（Admin only）──────────────────────────────────
+// 以縮排呈現組織樹（部門 > 課別 > …），可新增/改名/設上層/指派主管/刪除。
+function OrgTab() {
+  const [units, setUnits] = useState<OrgUnit[]>([])
+  const [users, setUsers] = useState<User[]>([])
+  const [loading, setLoading] = useState(true)
+  const [newName, setNewName] = useState('')
+  const [newParent, setNewParent] = useState('')
+  const [msg, setMsg] = useState('')
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState('')
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const [u, us] = await Promise.all([orgApi.list(), usersApiClient.list()])
+      setUnits(u.data)
+      setUsers(us.data)
+    } finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [])
+
+  const userName = (id: string | null) => users.find(u => u.id === id)?.display_name ?? '—'
+
+  // 依 parent_id 組樹，回傳 [unit, depth] 的深度優先序列
+  const tree = (() => {
+    const byParent: Record<string, OrgUnit[]> = {}
+    for (const u of units) {
+      const k = u.parent_id ?? 'root'
+      ;(byParent[k] ??= []).push(u)
+    }
+    const out: { unit: OrgUnit; depth: number }[] = []
+    const walk = (parent: string, depth: number) => {
+      for (const u of (byParent[parent] ?? []).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))) {
+        out.push({ unit: u, depth })
+        walk(u.id, depth + 1)
+      }
+    }
+    walk('root', 0)
+    return out
+  })()
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return
+    setMsg('')
+    try {
+      await orgApi.create({ name: newName.trim(), parent_id: newParent || null })
+      setNewName(''); setNewParent('')
+      load()
+    } catch (err: any) { setMsg(err?.response?.data?.detail ?? '建立失敗') }
+  }
+
+  const handleRename = async (u: OrgUnit) => {
+    const name = prompt('單位名稱', u.name)
+    if (name == null || !name.trim() || name === u.name) return
+    try { await orgApi.update(u.id, { name: name.trim() }); load() }
+    catch (err: any) { setMsg(err?.response?.data?.detail ?? '更新失敗') }
+  }
+
+  const handleSetParent = async (u: OrgUnit, parentId: string) => {
+    setMsg('')
+    try { await orgApi.update(u.id, { parent_id: parentId || null }); load() }
+    catch (err: any) { setMsg(err?.response?.data?.detail ?? '更新失敗') }
+  }
+
+  const handleSetManager = async (u: OrgUnit, managerId: string) => {
+    try { await orgApi.update(u.id, { manager_user_id: managerId || null }); load() }
+    catch (err: any) { setMsg(err?.response?.data?.detail ?? '更新失敗') }
+  }
+
+  const handleDelete = async (u: OrgUnit) => {
+    if (!confirm(`刪除單位「${u.name}」？子單位將升為頂層、所屬成員脫離單位（不會刪除成員）。`)) return
+    try { await orgApi.remove(u.id); load() }
+    catch (err: any) { setMsg(err?.response?.data?.detail ?? '刪除失敗') }
+  }
+
+  const handleSyncAd = async () => {
+    setSyncing(true); setSyncMsg('')
+    try {
+      const r = await orgApi.syncAd()
+      setSyncMsg(r.data.message)
+      load()
+    } catch (err: any) {
+      setSyncMsg(err?.response?.data?.detail ?? '同步失敗')
+    } finally { setSyncing(false) }
+  }
+
+  if (loading) return <div className="text-gray-400 py-8 text-center">載入中…</div>
+
+  return (
+    <div className="max-w-3xl">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-700">組織架構（部門 / 課別）</h3>
+        <span className="text-xs text-gray-400">{units.length} 個單位</span>
+      </div>
+
+      {/* AD 同步：手動建立與 AD 同步並行，AD 同步只碰 AD 來源的單位 */}
+      <div className="flex items-center gap-3 mb-4 bg-blue-50 border border-blue-100 rounded-xl p-3">
+        <div className="flex-1">
+          <p className="text-sm font-medium text-blue-800">從 AD/LDAP 同步組織樹</p>
+          <p className="text-xs text-blue-500">依 AD 的 OU 階層展開；只新增/更新 AD 來源單位，不影響手動建立的。需先在「系統設定」啟用 LDAP。</p>
+        </div>
+        <button className="btn-secondary text-sm whitespace-nowrap" onClick={handleSyncAd} disabled={syncing}>
+          {syncing ? '同步中…' : '立即同步 AD'}
+        </button>
+      </div>
+      {syncMsg && <p className="text-sm text-blue-600 mb-3">{syncMsg}</p>}
+
+      {/* 新增單位 */}
+      <div className="flex gap-2 mb-4 flex-wrap items-end bg-gray-50 rounded-xl p-3">
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">新單位名稱</label>
+          <input className="input text-sm w-44" value={newName} placeholder="例：工程部 / 後端課"
+            onChange={e => setNewName(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">上層單位</label>
+          <select className="input text-sm w-40" value={newParent} onChange={e => setNewParent(e.target.value)}>
+            <option value="">（頂層）</option>
+            {tree.map(({ unit, depth }) => (
+              <option key={unit.id} value={unit.id}>{'　'.repeat(depth)}{unit.name}</option>
+            ))}
+          </select>
+        </div>
+        <button className="btn-primary text-sm" onClick={handleCreate}>新增</button>
+      </div>
+      {msg && <p className="text-sm text-red-500 mb-3">{msg}</p>}
+
+      {/* 組織樹 */}
+      <div className="space-y-1.5">
+        {tree.length === 0 && <p className="text-sm text-gray-400">尚無組織單位</p>}
+        {tree.map(({ unit, depth }) => {
+          const isAd = unit.source === 'ad'
+          return (
+          <div key={unit.id} className={`flex items-center gap-2 p-2.5 border rounded-xl ${
+            unit.is_active ? 'bg-white border-gray-100' : 'bg-gray-50 border-gray-100 opacity-60'
+          }`}
+            style={{ marginLeft: depth * 20 }}>
+            <span className="text-gray-300">{depth > 0 ? '└' : '▪'}</span>
+            {isAd ? (
+              <span className="text-sm font-medium text-gray-800" title="AD 來源，名稱由同步管理">{unit.name}</span>
+            ) : (
+              <button className="text-sm font-medium text-gray-800 hover:text-primary-600" onClick={() => handleRename(unit)}
+                title="點擊改名">{unit.name}</button>
+            )}
+            {isAd && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600">AD</span>}
+            {!unit.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-500">已停用</span>}
+            <div className="flex items-center gap-2 ml-auto flex-wrap">
+              {/* AD 單位的層級由同步維護，這裡只開放「指派主管」（本地概念，不寫回 AD） */}
+              {!isAd && (
+                <select className="text-xs border border-gray-200 rounded px-1.5 py-1"
+                  value={unit.parent_id ?? ''} onChange={e => handleSetParent(unit, e.target.value)} title="上層單位">
+                  <option value="">（頂層）</option>
+                  {tree.filter(t => t.unit.id !== unit.id && t.unit.source !== 'ad').map(({ unit: o, depth: d }) => (
+                    <option key={o.id} value={o.id}>{'　'.repeat(d)}{o.name}</option>
+                  ))}
+                </select>
+              )}
+              <select className="text-xs border border-gray-200 rounded px-1.5 py-1"
+                value={unit.manager_user_id ?? ''} onChange={e => handleSetManager(unit, e.target.value)} title="主管">
+                <option value="">（未設主管）</option>
+                {users.map(u => <option key={u.id} value={u.id}>主管：{u.display_name}</option>)}
+              </select>
+              {!isAd && (
+                <button onClick={() => handleDelete(unit)} className="text-xs text-red-400 hover:text-red-600">刪除</button>
+              )}
+            </div>
+          </div>
+          )
+        })}
+      </div>
+      <p className="text-xs text-gray-400 mt-3">
+        主管（manager）自動可在月曆「堆疊團隊」檢視其所管單位（含子單位）成員的日常作業；
+        指派主管：在上方下拉選 {userName(null)} 以外的成員即可。
+      </p>
     </div>
   )
 }
@@ -643,6 +940,7 @@ export default function SettingsPage() {
     { id: 'profile', label: '個人資料' },
     { id: 'appearance', label: '外觀' },
     { id: 'users',   label: '使用者管理', adminOnly: true },
+    { id: 'org',     label: '組織管理', adminOnly: true },
     { id: 'system_config', label: '系統設定', adminOnly: true },
     { id: 'system',  label: '系統資訊', adminOnly: true },
   ]
@@ -669,6 +967,7 @@ export default function SettingsPage() {
       {tab === 'profile'       && <ProfileTab />}
       {tab === 'appearance'    && <AppearanceTab />}
       {tab === 'users'         && <UsersTab />}
+      {tab === 'org'           && <OrgTab />}
       {tab === 'system_config' && <SystemConfigTab />}
       {tab === 'system'        && <SystemTab />}
     </div>

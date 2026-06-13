@@ -14,8 +14,36 @@ export interface User {
   role: UserRole
   is_active: boolean
   avatar_url: string | null
+  org_unit_id: string | null
+  position: string | null
   auto_archive_days: number
   created_at: string
+}
+
+export interface OrgUnit {
+  id: string
+  name: string
+  parent_id: string | null
+  manager_user_id: string | null
+  source: 'manual' | 'ad'
+  is_active: boolean
+}
+
+export interface AdSyncResult {
+  created: number
+  updated: number
+  deactivated: number
+  members_assigned: number
+  users_created: number
+  users_updated: number
+  users_deactivated: number
+  message: string
+}
+
+export interface CalendarGrant {
+  id: string
+  user_id: string
+  org_unit_id: string
 }
 
 export interface ArchiveHistoryItem {
@@ -222,6 +250,9 @@ export interface CalendarEvent {
   project_id?: string
   project_name?: string
   labels: string[]
+  user_id?: string | null
+  user_name?: string | null
+  color?: string | null
 }
 
 export interface MilestoneDailyTask {

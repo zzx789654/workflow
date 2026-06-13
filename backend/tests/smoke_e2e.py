@@ -43,7 +43,8 @@ def main():
     r = c.post(f"{api}/auth/login", json={"username": args.admin_user, "password": args.admin_pass})
     ok = check("admin login", r.status_code == 200 and "access_token" in r.json(), r.text)
     if not ok:
-        summarize(); sys.exit(1)
+        summarize()
+        sys.exit(1)
     tok = r.json()["access_token"]
     refresh = r.json().get("refresh_token")
     H = {"Authorization": f"Bearer {tok}"}
@@ -69,16 +70,21 @@ def main():
 
     # 註冊一個一般成員（供後續成員/指派測試）
     member_username = "qa_member_" + uuid.uuid4().hex[:8]
-    r = c.post(f"{api}/auth/register", json={
-        "username": member_username, "display_name": "QA Member", "password": "MemberPass123"})
+    r = c.post(
+        f"{api}/auth/register",
+        json={"username": member_username, "display_name": "QA Member", "password": "MemberPass123"},
+    )
     reg_ok = check("register member", r.status_code in (200, 201), r.text)
     member_id = r.json().get("id") if reg_ok else None
 
     # ── 4. 專案 CRUD ─────────────────────────────────────────
-    r = c.post(f"{api}/projects/", headers=H, json={"name": "QA 煙霧測試專案", "description": "e2e", "color": "#6366f1"})
+    r = c.post(
+        f"{api}/projects/", headers=H, json={"name": "QA 煙霧測試專案", "description": "e2e", "color": "#6366f1"}
+    )
     proj_ok = check("create project", r.status_code in (200, 201), r.text)
     if not proj_ok:
-        summarize(); sys.exit(1)
+        summarize()
+        sys.exit(1)
     pid = r.json()["id"]
 
     r = c.get(f"{api}/projects/", headers=H)
@@ -98,12 +104,20 @@ def main():
     check("list project members", r.status_code == 200, r.text)
 
     # ── 6. 任務 CRUD + 看板移動 ──────────────────────────────
-    r = c.post(f"{api}/projects/{pid}/tasks/", headers=H, json={
-        "title": "QA 任務 1", "description": "core", "priority": "high",
-        "assignee_ids": [member_id] if member_id else []})
+    r = c.post(
+        f"{api}/projects/{pid}/tasks/",
+        headers=H,
+        json={
+            "title": "QA 任務 1",
+            "description": "core",
+            "priority": "high",
+            "assignee_ids": [member_id] if member_id else [],
+        },
+    )
     task_ok = check("create task", r.status_code in (200, 201), r.text)
     if not task_ok:
-        summarize(); sys.exit(1)
+        summarize()
+        sys.exit(1)
     tid = r.json()["id"]
 
     r = c.get(f"{api}/projects/{pid}/tasks/", headers=H)
@@ -134,8 +148,9 @@ def main():
     cmt_ok = check("add comment", r.status_code in (200, 201), r.text)
     cmt_id = r.json().get("id") if cmt_ok else None
     if cmt_id:
-        r = c.post(f"{api}/projects/{pid}/tasks/{tid}/comments/{cmt_id}/reactions/toggle",
-                   headers=H, json={"emoji": "👍"})
+        r = c.post(
+            f"{api}/projects/{pid}/tasks/{tid}/comments/{cmt_id}/reactions/toggle", headers=H, json={"emoji": "👍"}
+        )
         check("toggle comment reaction", r.status_code in (200, 201, 204), r.text)
 
     # ── 9. 依賴關係 ──────────────────────────────────────────
@@ -146,8 +161,9 @@ def main():
         check("list dependencies", r.status_code == 200, r.text)
 
     # ── 10. 時間追蹤 ─────────────────────────────────────────
-    r = c.post(f"{api}/projects/{pid}/tasks/{tid}/time-logs/manual", headers=H,
-               json={"minutes": 30, "note": "qa manual log"})
+    r = c.post(
+        f"{api}/projects/{pid}/tasks/{tid}/time-logs/manual", headers=H, json={"minutes": 30, "note": "qa manual log"}
+    )
     check("manual time log", r.status_code in (200, 201), r.text)
     r = c.get(f"{api}/projects/{pid}/tasks/{tid}/time-logs/", headers=H)
     check("list time logs", r.status_code == 200, r.text)
@@ -155,7 +171,7 @@ def main():
     # ── 11. 每日任務 ─────────────────────────────────────────
     today = datetime.date.today().isoformat()
     r = c.post(f"{api}/daily-tasks/", headers=H, json={"title": "今日例行", "date": today})
-    dt_ok = check("create daily task", r.status_code in (200, 201), r.text)
+    check("create daily task", r.status_code in (200, 201), r.text)
     r = c.get(f"{api}/daily-tasks/", headers=H, params={"date": today})
     check("list daily tasks", r.status_code == 200, r.text)
 

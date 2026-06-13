@@ -1,5 +1,6 @@
 from app.models.daily_task import DailyTask, DailyTaskArchive, DailyTaskLabel
 from app.models.milestone import Milestone
+from app.models.org import OrgUnit, UserCalendarGrant
 from app.models.project import Project, ProjectMember
 from app.models.system_setting import SystemSetting
 from app.models.task import Task, TaskAssignee, TaskComment
@@ -18,6 +19,8 @@ __all__ = [
     "User",
     "Project",
     "ProjectMember",
+    "OrgUnit",
+    "UserCalendarGrant",
     "Milestone",
     "Task",
     "TaskAssignee",

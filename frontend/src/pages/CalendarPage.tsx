@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { format, getDaysInMonth, startOfMonth, getDay, addMonths, subMonths, parseISO } from 'date-fns'
 import { calendarApi } from '../api/calendar'
+import { useAuthStore } from '../stores/authStore'
 import type { CalendarEvent } from '../types'
 
 const TYPE_COLORS: Record<string, string> = {
@@ -15,11 +16,18 @@ const STATUS_DOT: Record<string, string> = {
 }
 
 export default function CalendarPage() {
+  const user = useAuthStore(s => s.user)
+  // 主管/管理員才看得到「堆疊團隊」開關（一般成員無可視範圍，開了也只有自己）
+  const canViewTeam = user?.role === 'admin' || user?.role === 'member'
+
   const [viewDate, setViewDate] = useState(new Date())
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [filterLabel, setFilterLabel] = useState('')
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  const [includeTeam, setIncludeTeam] = useState(false)
+  // 圖例逐人勾選：被隱藏的 user_id 集合
+  const [hiddenUsers, setHiddenUsers] = useState<Set<string>>(new Set())
 
   const year = viewDate.getFullYear()
   const month = viewDate.getMonth() + 1
@@ -27,12 +35,37 @@ export default function CalendarPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const res = await calendarApi.getEvents(year, month, filterLabel || undefined)
+      const res = await calendarApi.getEvents(year, month, filterLabel || undefined, includeTeam)
       setEvents(res.data)
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [year, month, filterLabel])
+  useEffect(() => { load() }, [year, month, filterLabel, includeTeam])
+
+  // 人員圖例：堆疊檢視下，蒐集出現過的 daily 事件擁有者（去重，依名稱排序）
+  const people = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; color: string }>()
+    for (const e of events) {
+      if (e.type === 'daily' && e.user_id && !map.has(e.user_id)) {
+        map.set(e.user_id, { id: e.user_id, name: e.user_name ?? '未具名', color: e.color ?? '#94a3b8' })
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+  }, [events])
+
+  const toggleUser = (id: string) => {
+    setHiddenUsers(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  // 套用圖例勾選過濾（隱藏的人員其 daily 事件不顯示）
+  const visibleEvents = useMemo(
+    () => events.filter(e => !(e.type === 'daily' && e.user_id && hiddenUsers.has(e.user_id))),
+    [events, hiddenUsers],
+  )
 
   // Calendar grid
   const daysInMonth = getDaysInMonth(viewDate)
@@ -41,7 +74,7 @@ export default function CalendarPage() {
   const cells: (number | null)[] = [...Array(firstDow).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]
   while (cells.length % 7 !== 0) cells.push(null)
 
-  const eventsByDay = events.reduce<Record<string, CalendarEvent[]>>((acc, e) => {
+  const eventsByDay = visibleEvents.reduce<Record<string, CalendarEvent[]>>((acc, e) => {
     const d = e.date
     if (!acc[d]) acc[d] = []
     acc[d].push(e)
@@ -57,6 +90,17 @@ export default function CalendarPage() {
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-900">月曆</h1>
         <div className="flex items-center gap-3 flex-wrap">
+          {canViewTeam && (
+            <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="rounded border-gray-300"
+                checked={includeTeam}
+                onChange={e => setIncludeTeam(e.target.checked)}
+              />
+              堆疊團隊日常作業
+            </label>
+          )}
           <select className="input w-40" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
             <option value="">全部標籤</option>
             {allLabels.map(l => <option key={l} value={l}>{l}</option>)}
@@ -69,6 +113,33 @@ export default function CalendarPage() {
           <button className="btn-secondary text-sm" onClick={() => setViewDate(new Date())}>今月</button>
         </div>
       </div>
+
+      {/* 人員圖例（堆疊檢視且有多人時顯示，可逐人勾選顯示/隱藏） */}
+      {includeTeam && people.length > 0 && (
+        <div className="flex gap-2 mb-4 flex-wrap items-center bg-gray-50 rounded-xl p-3">
+          <span className="text-xs text-gray-400 mr-1">顯示成員：</span>
+          {people.map(p => {
+            const hidden = hiddenUsers.has(p.id)
+            return (
+              <button
+                key={p.id}
+                onClick={() => toggleUser(p.id)}
+                className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border transition-colors ${
+                  hidden ? 'border-gray-200 bg-white text-gray-300' : 'border-transparent text-gray-700'
+                }`}
+                style={hidden ? undefined : { backgroundColor: `${p.color}1a` }}
+                title={hidden ? '點擊顯示' : '點擊隱藏'}
+              >
+                <span
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: hidden ? '#d1d5db' : p.color }}
+                />
+                {p.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/* 月曆本體 */}
       <div>
@@ -102,20 +173,32 @@ export default function CalendarPage() {
                   isToday ? 'bg-primary-600 text-white' : 'text-gray-700'
                 }`}>{day}</div>
                 <div className="space-y-0.5">
-                  {dayEvents.slice(0, 3).map(ev => (
-                    <div key={ev.id}
-                      className={`text-xs px-1 py-0.5 rounded truncate flex items-center gap-1 ${TYPE_COLORS[ev.type]}`}
-                      title={ev.project_name ? `[${ev.project_name}] ${ev.title}` : ev.title}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${STATUS_DOT[ev.status] ?? 'bg-gray-400'}`} />
-                      <span className="truncate">
-                        {ev.type === 'task' && ev.project_name && (
-                          <span className="opacity-60 mr-0.5">[{ev.project_name}]</span>
-                        )}
-                        {ev.title}
-                      </span>
-                    </div>
-                  ))}
+                  {dayEvents.slice(0, 3).map(ev => {
+                    // 堆疊檢視下的 daily 事件：用人員配色做左色條 + 淡底
+                    const personColor = includeTeam && ev.type === 'daily' ? ev.color ?? undefined : undefined
+                    return (
+                      <div key={ev.id}
+                        className={`text-xs px-1 py-0.5 rounded truncate flex items-center gap-1 ${personColor ? '' : TYPE_COLORS[ev.type]}`}
+                        style={personColor ? { backgroundColor: `${personColor}1a`, borderLeft: `3px solid ${personColor}`, color: '#374151' } : undefined}
+                        title={
+                          ev.type === 'daily' && ev.user_name
+                            ? `${ev.user_name}：${ev.title}`
+                            : ev.project_name ? `[${ev.project_name}] ${ev.title}` : ev.title
+                        }
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${STATUS_DOT[ev.status] ?? 'bg-gray-400'}`} />
+                        <span className="truncate">
+                          {ev.type === 'task' && ev.project_name && (
+                            <span className="opacity-60 mr-0.5">[{ev.project_name}]</span>
+                          )}
+                          {personColor && ev.user_name && (
+                            <span className="opacity-60 mr-0.5">{ev.user_name}·</span>
+                          )}
+                          {ev.title}
+                        </span>
+                      </div>
+                    )
+                  })}
                   {dayEvents.length > 3 && (
                     <p className="text-xs text-gray-400 pl-1">+{dayEvents.length - 3} 更多</p>
                   )}
@@ -146,9 +229,13 @@ export default function CalendarPage() {
               {selectedDayEvents.map(ev => (
                 <div key={ev.id} className={`p-3 rounded-xl border ${ev.type === 'task' ? 'border-indigo-100 bg-indigo-50' : 'border-emerald-100 bg-emerald-50'}`}>
                   <div className="flex items-center gap-1.5 mb-1.5">
-                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_DOT[ev.status] ?? 'bg-gray-400'}`} />
+                    <span
+                      className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_DOT[ev.status] ?? 'bg-gray-400'}`}
+                    />
                     <span className={`text-xs font-medium ${ev.type === 'task' ? 'text-indigo-600' : 'text-emerald-600'}`}>
-                      {ev.type === 'task' ? `任務${ev.project_name ? ` · ${ev.project_name}` : ''}` : '日常作業'}
+                      {ev.type === 'task'
+                        ? `任務${ev.project_name ? ` · ${ev.project_name}` : ''}`
+                        : `日常作業${ev.user_name ? ` · ${ev.user_name}` : ''}`}
                     </span>
                   </div>
                   <p className="text-sm font-medium text-gray-800 leading-snug">{ev.title}</p>
