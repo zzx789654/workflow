@@ -4,6 +4,7 @@ import { useThemeStore, PALETTES, FX_OPTIONS, MODE_OPTIONS } from '../stores/the
 import { authApi } from '../api/auth'
 import { orgApi } from '../api/org'
 import { usersApi as usersApiClient } from '../api/users'
+import { confirm } from '../stores/confirmStore'
 import type { User, OrgUnit, CalendarGrant } from '../types'
 
 // ── API helpers ───────────────────────────────────────────────
@@ -344,7 +345,7 @@ function UsersTab() {
   }
 
   const handleDeactivate = async (userId: string, name: string) => {
-    if (!confirm(`確定停用帳號「${name}」？`)) return
+    if (!(await confirm({ title: '停用帳號', message: `確定停用帳號「${name}」？`, confirmLabel: '停用', danger: true }))) return
     await usersApi.deactivate(userId)
     load()
   }
@@ -485,7 +486,7 @@ function OrgTab() {
   }
 
   const handleDelete = async (u: OrgUnit) => {
-    if (!confirm(`刪除單位「${u.name}」？子單位將升為頂層、所屬成員脫離單位（不會刪除成員）。`)) return
+    if (!(await confirm({ title: '刪除單位', message: `刪除單位「${u.name}」？子單位將升為頂層、所屬成員脫離單位（不會刪除成員）。`, confirmLabel: '刪除', danger: true }))) return
     try { await orgApi.remove(u.id); load() }
     catch (err: any) { setMsg(err?.response?.data?.detail ?? '刪除失敗') }
   }

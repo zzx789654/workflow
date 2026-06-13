@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import and_, delete, func, or_, select
@@ -65,28 +65,35 @@ async def _load(task_id: uuid.UUID, user: User, db: AsyncSession) -> DailyTask:
 
 @router.get("/", response_model=list[DailyTaskOut])
 async def list_daily_tasks(
+    response: Response,
     task_date: date | None = Query(None, alias="date"),
     label: str | None = Query(None),
     pending_only: bool = Query(False),
     target_user_id: uuid.UUID | None = Query(None),
+    limit: int | None = Query(None, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """列出日常作業。
+
+    向後相容：不傳 limit 時回傳符合條件的全部資料（裸陣列，維持舊契約）。
+    傳 limit/offset 時做分頁；無論是否分頁，總筆數都放在回應標頭
+    X-Total-Count，讓前端能逐頁拉取並顯示「N / total」。
+    """
     is_admin = current_user.role == UserRole.admin
 
-    q = select(DailyTask).options(
-        selectinload(DailyTask.labels),
-        selectinload(DailyTask.linked_task).selectinload(Task.project),
-    )
+    # 篩選條件抽成共用清單，讓資料查詢與總數查詢套用同一組 where
+    conditions = []
     if is_admin and target_user_id:
-        q = q.where(DailyTask.user_id == target_user_id)
+        conditions.append(DailyTask.user_id == target_user_id)
     elif not is_admin:
-        q = q.where(DailyTask.user_id == current_user.id)
+        conditions.append(DailyTask.user_id == current_user.id)
     if task_date:
-        q = q.where(DailyTask.date == task_date)
+        conditions.append(DailyTask.date == task_date)
     if pending_only:
         today = date.today()
-        q = q.where(
+        conditions.append(
             or_(
                 DailyTask.status.in_([DailyTaskStatus.pending, DailyTaskStatus.in_progress]),
                 and_(
@@ -95,9 +102,30 @@ async def list_daily_tasks(
                 ),
             )
         )
-    if label:
-        q = q.join(DailyTaskLabel).where(DailyTaskLabel.label == label)
+
+    # label 需 join 子表；count 與資料查詢都要套用，避免總數與分頁不一致
+    needs_label_join = label is not None
+
+    count_q = select(func.count(func.distinct(DailyTask.id))).select_from(DailyTask)
+    if needs_label_join:
+        count_q = count_q.join(DailyTaskLabel)
+        conditions.append(DailyTaskLabel.label == label)
+    if conditions:
+        count_q = count_q.where(and_(*conditions))
+    total = (await db.execute(count_q)).scalar() or 0
+    response.headers["X-Total-Count"] = str(total)
+
+    q = select(DailyTask).options(
+        selectinload(DailyTask.labels),
+        selectinload(DailyTask.linked_task).selectinload(Task.project),
+    )
+    if needs_label_join:
+        q = q.join(DailyTaskLabel)
+    if conditions:
+        q = q.where(and_(*conditions))
     q = q.order_by(DailyTask.date.asc(), DailyTask.created_at.asc())
+    if limit is not None:
+        q = q.offset(offset).limit(limit)
     result = await db.execute(q)
     return [_to_out(t) for t in result.scalars().unique().all()]
 

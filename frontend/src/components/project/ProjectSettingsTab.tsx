@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { customFieldsApi } from '../../api/customFields'
+import { confirm } from '../../stores/confirmStore'
 import { projectsApi } from '../../api/projects'
 import { toast } from '../../stores/toastStore'
 import type { Project, ProjectField } from '../../types'
@@ -83,7 +84,7 @@ export default function ProjectSettingsTab({ projectId, project, onProjectUpdate
   }
 
   const handleDeleteField = async (fieldId: string) => {
-    if (!confirm('確定刪除此自訂欄位？所有任務的此欄位值將一併移除。')) return
+    if (!(await confirm({ title: '刪除自訂欄位', message: '確定刪除此自訂欄位？所有任務的此欄位值將一併移除。', confirmLabel: '刪除', danger: true }))) return
     await customFieldsApi.deleteField(projectId, fieldId)
     setFields(f => f.filter(x => x.id !== fieldId))
   }

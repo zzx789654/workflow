@@ -40,7 +40,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     isActive ? 'nav-item-active' : 'nav-item-inactive'
 
   return (
-    <div className="min-h-screen flex app-surface">
+    <div className="h-screen overflow-hidden flex app-surface">
       {/* 側邊欄 */}
       <aside className="w-52 flex-shrink-0 border-r border-gray-200 dark:border-gray-800 flex flex-col surface-panel">
         {/* Logo */}

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { milestonesApi } from '../../api/milestones'
+import { confirm } from '../../stores/confirmStore'
 import type { MilestoneLog, MilestoneDailyTask } from '../../types'
 
 interface Props { projectId: string }
@@ -74,7 +75,7 @@ export default function MilestonesTab({ projectId }: Props) {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('確定刪除此完成記錄？')) return
+    if (!(await confirm({ title: '刪除記錄', message: '確定刪除此完成記錄？', confirmLabel: '刪除', danger: true }))) return
     await milestonesApi.delete(projectId, id)
     setLogs(l => l.filter(x => x.id !== id))
   }

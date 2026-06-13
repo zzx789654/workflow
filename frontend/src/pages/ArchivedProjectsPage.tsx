@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { dailyTasksApi } from '../api/dailyTasks'
+import { confirm } from '../stores/confirmStore'
 import { usersApi } from '../api/users'
 import { useAuthStore } from '../stores/authStore'
 import { toast } from '../stores/toastStore'
@@ -62,7 +63,7 @@ export default function ArchivedProjectsPage() {
     }
     const label = ARCHIVE_MODE_LABELS[archiveMode]
     const countHint = preview ? `（共 ${preview.count} 筆）` : ''
-    if (!confirm(`確定要將「${label}」${countHint}的已完成日常作業移至歷史封存區？`)) return
+    if (!(await confirm({ title: '移至封存', message: `確定要將「${label}」${countHint}的已完成日常作業移至歷史封存區？` }))) return
     setArchiving(true)
     try {
       const res = await dailyTasksApi.archive({

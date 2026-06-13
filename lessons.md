@@ -6,6 +6,42 @@
 - 修法（全域、最小改動）：在 `:root` 設 `color-scheme: light`、`:root.dark` 設 `color-scheme: dark`；再加全域保險 `.dark select`/`.dark select option`/`.dark input:not(.input):not([type=checkbox]…)` 明確指定面板色與文字色。**沒有逐檔改 12 個元件**，一次 CSS 覆蓋全部現有與未來的 select。
 - 驗證：frontend 容器內 `tsc --noEmit` 無錯、`npm run build` 450 modules 綠燈、grep 編譯後 CSS 確認 `color-scheme:dark` 與 `.dark select{…}` 規則都在。
 
+## [2026-06-13] 輪結 Round 24 — 用自訂對話框取代原生 confirm()（去除「Code」系統視窗）
+
+- 現況：**G2✅（全 app 12 處 confirm 統一，build 綠燈）**
+- 問題：刪除確認跳出「電腦上的視窗」、標題顯示「Code」。根因 = 程式用瀏覽器原生 `confirm()`，那是系統級對話框，標題自動帶來源名（Code）、改不掉、不吃深色模式、會凍結頁面。
+- 解法（沿用 toastStore 的全域呼叫式範式）：新增 `confirmStore`（`confirm(opts):Promise<boolean>`，store 持有狀態＋resolve）＋ `ConfirmDialog` 元件（用既有 modal-backdrop/panel + btn-danger，支援深色、Esc 取消/Enter 確認），掛在 App 根一次。把 12 處 `if(!confirm(x))` 改成 `if(!(await confirm({message:x,danger:true})))`，handler 本就是 async。
+- 驗證：grep 確認無殘留原生 confirm；tsc 無錯（12 處 await 皆合法）；build 綠燈。
+- 教訓 83：原生 `confirm/alert/prompt` 是系統對話框，標題（來源名）改不掉、不吃 app 主題、阻塞執行緒。產品級 app 一律用自訂對話框；做成「全域 Promise 式 API」（store + 根節點掛一個元件）就能像原生一樣一行 `await confirm(...)` 呼叫，又完全可控。
+
+## [2026-06-13] 輪結 Round 23 — 任務列表體驗：移除批量、樂觀更新、版面固定、詳情編輯
+
+- 現況：**G2✅（多項前端體驗修正，build 全綠）**
+- 版面固定：Layout 最外層 `min-h-screen` → `h-screen overflow-hidden`，讓側邊欄（設定/登出）與頂欄固定，只有 `<main>` 捲動。根因是 min-h 允許整頁超過視窗高，導致整個 window 捲、`<main>` 的 overflow-y-auto 從未生效。
+- 日常作業樂觀更新：刪除/狀態/工時/關聯/編輯改成「就地操作單筆」（removeOne 過濾、updateOne 重抓單筆），取代每次 `load()` 重置回第一頁。解決「刪第 50-60 筆每刪一筆跳回頂部」。TaskRow 回調簽名改帶 id。新增（InlineAddForm）仍回第一頁（合理）。
+- 移除專案任務列表的勾選/批量：使用者要求簡化。刪掉 checkbox 欄、頂部批量操作栏、Undo toast 及相關 state/handler，只留排序＋單筆狀態下拉。JS bundle 變小。
+- 詳情面板補編輯：TaskDetailPanel 標題原本是純 `<h2>`、描述只讀、優先度只是 badge。加「編輯」切換 → 標題 input／優先度 select／描述 textarea，存檔走 `tasksApi.update`（後端 PATCH 已支援 title/description/priority，實測 200）。
+- 教訓 82：本機用 Git Bash + curl 傳**中文 JSON body** 易因編碼被後端判 400「error parsing the body」，誤以為 API 壞。驗 API 用 ASCII，中文路徑交給瀏覽器（UTF-8 fetch）或 python 發。別被 shell 編碼假象帶偏。
+
+## [2026-06-13] 輪結 Round 22 — 日常作業 API 分頁（效能：全量拉取改逐頁）
+
+- 現況：**G2✅（前後端完成、測試綠燈）；後端 9→13 測試通過（含 4 個新分頁測試），前端 tsc/build 綠燈**
+- 問題：使用者問「日常作業超過 1000 筆會怎樣」。盤查發現 `GET /daily-tasks/` 無分頁、全量回傳（含 selectinload 關聯），前端 DailyTaskPage 也只傳 label 全量拉取 → 1000+ 筆首屏線性變慢（列表渲染本身有漸進渲染 PAGE_SIZE=50 擋住，不會卡，但傳輸/序列化/記憶體會痛）。
+- 設計（向後相容，最小衝擊）：保留回傳裸陣列 `list[DailyTaskOut]`（10+ 測試與其他呼叫端都把 body 當陣列，改成物件會全炸）；新增可選 `limit`(ge=1,le=500)/`offset`(ge=0)；總數放 **回應標頭 X-Total-Count**（不破壞 body），main.py CORS 加 `expose_headers=["X-Total-Count"]` 否則前端跨域讀不到。count 與資料查詢共用同一組 where（含 label join），避免總數與分頁不一致。
+- 前端：`load()` 拉第一頁(limit=50,offset=0) 讀 header 得 total；`loadMore()` 用 offset=allTasks.length 逐頁累積，IntersectionObserver 觸發、用 ref 防並發重複頁；底部顯示「已載入 N / total」。
+- 驗證：實打 API（分頁切片正確、X-Total-Count 正確、limit 0/999、offset -1 皆 422）；獨立測試 DB 跑 test_daily_tasks 全綠。
+
+### 教訓 / 準則
+
+**教訓 80：改既有 API 契約前先 grep 所有呼叫端與測試斷言，能相容就別改 body 形狀**
+- 情境（Round 22）：要加分頁，最直覺是回 `{items,total}`，但 grep 出 10+ 測試都 `for t in resp.json()` / `== []`，前端與其他端也吃裸陣列。改物件 = 全面破壞。
+- 準則：列表加分頁時，優先「裸陣列不動 + 總數走 header(X-Total-Count) + limit/offset 可選且預設維持舊行為」。需要時才升級成信封物件，且同步改所有斷言。header 跨域要 `expose_headers`。
+- **How to apply：** 動任何 response_model 前先 `grep -rn '端點路徑' tests/ src/`；分頁 count 與 data 必須套同一組 where（尤其有 join 的 label 篩選），否則 total 與頁內容對不上。
+
+**教訓 81：跑測試務必用獨立測試 DB，別連到運行中的部署 DB**
+- 情境（Round 22）：一開始沒設 DATABASE_URL，conftest 對「運行中的部署 DB(workflow_db)」drop_all，撞上 alembic 建的 FK 約束（fk_org_units_manager_user_id）與 metadata 不一致 → ProgrammingError，看起來像我改壞了，其實無關。
+- 準則：本機/容器內跑測試前，先把 DATABASE_URL 指到一個專用測試 DB（`CREATE DATABASE wf_pgtest` 或臨時容器），絕不讓 conftest 的 drop_all/create_all 動到正在服務的 DB。容器內取真實密碼：`export DATABASE_URL=$(echo $DATABASE_URL | sed 's#/workflow_db#/wf_pgtest#')`。
+
 ### 補修（同輪第四批）：列表狀態無法變更 = api client 雙 /api/v1 前綴 bug（真功能缺陷）
 - 使用者回報：任務列表（TaskListView）的狀態下拉改不動；另優先級「中」(`text-yellow-500`) 深色對比差。
 - 診斷法（不猜）：先對跑著的後端直接 curl `PATCH /api/v1/projects/{pid}/tasks/{tid}` → **200 成功**，證明後端正常、bug 在前端。再讀 api client：`axios.create({ baseURL: '${API_BASE}/api/v1' })`，但 TaskListView 裡 4 個 `api.patch/delete` 又寫了 `/api/v1/projects/...` → 實際打到 `/api/v1/api/v1/...` → **404**。狀態變更、批量改狀態、批量刪除全失效。

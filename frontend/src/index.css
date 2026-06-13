@@ -186,6 +186,7 @@
 .dark .bg-green-100   { background-color: rgb(22 101 52 / 0.35); }
 .dark .bg-violet-100  { background-color: rgb(91 33 182 / 0.30); }
 .dark .bg-purple-100  { background-color: rgb(107 33 168 / 0.30); }
+.dark .bg-primary-100 { background-color: rgb(var(--primary-600) / 0.30); }  /* 排序鈕選中態等 */
 
 /* 淺彩底上的深色語義文字：深色模式下底已轉深，文字需提亮才可讀 */
 .dark .text-indigo-700,  .dark .text-indigo-600  { color: rgb(165 180 252); }
