@@ -115,10 +115,19 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install semgrep
+      # 嚴謹 SAST：擴充規則集（security-audit/secrets/xss），並擋 ERROR + WARNING 兩級。
+      # 已確認的誤報於程式碼以 `# nosemgrep: <rule-id>` 標記豁免。
       - name: Semgrep Python
-        run: semgrep --config=p/owasp-top-ten --config=p/python --config=p/secrets --error --severity=ERROR backend/app/
+        run: >-
+          semgrep
+          --config=p/owasp-top-ten --config=p/python --config=p/secrets --config=p/security-audit
+          --error --severity=ERROR --severity=WARNING backend/app/
       - name: Semgrep TypeScript
-        run: semgrep --config=p/typescript --config=p/react --error --severity=ERROR frontend/src/
+        run: >-
+          semgrep
+          --config=p/typescript --config=p/react --config=p/javascript
+          --config=p/security-audit --config=p/secrets --config=p/xss
+          --error --severity=ERROR --severity=WARNING frontend/src/
 
   secret-scan:
     name: Secret Scan

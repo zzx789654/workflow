@@ -40,6 +40,7 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
     # token_version 不符 → 該 token 已因改密碼/登出失效
     if payload.get("tv", 0) != user.token_version:
+        # nosemgrep: python-logger-credential-disclosure — 記的是 user_id（非密鑰），訊息字串中的 "token_version" 僅為文字
         logger.warning("Auth failed: stale token_version for user=%s", user_id)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
     return user
