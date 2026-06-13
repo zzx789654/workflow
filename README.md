@@ -9,6 +9,7 @@
 
 ## 目錄
 
+- [資料邏輯架構](#資料邏輯架構)
 - [選擇部署方式](#選擇部署方式)
 - [方式 A — Docker 部署](#方式-a--docker-部署)
 - [方式 B — Ubuntu 裸機部署（非 Docker）](#方式-b--ubuntu-裸機部署非-docker)
@@ -19,6 +20,67 @@
 - [本機開發](#本機開發)
 - [測試](#測試)
 - [套件版本](#套件版本)
+
+---
+
+## 資料邏輯架構
+
+底層為 **PostgreSQL + SQLAlchemy（async）**，共 28 張資料表、全部以 UUID 為主鍵。
+資料邏輯以 `User`、`Project`、`Task` 三大核心實體為中心，分為五個領域。
+
+### 核心實體關係（主幹）
+
+```
+User（使用者）
+  └─< ProjectMember >─┐         使用者 ⇄ 專案（多對多，帶專案角色）
+                      │
+Project（專案）────────┘
+  ├─< Milestone（里程碑）
+  ├─< ProjectField（自訂欄位定義）
+  └─< Task（任務）
+        ├─ parent_task_id → Task         子任務（自參考樹狀）
+        ├─< TaskAssignee >─ User          任務 ⇄ 負責人（多對多）
+        ├─< TaskComment ─ author → User
+        ├─< TaskFieldValue → ProjectField 任務的自訂欄位值
+        ├─< TaskDependency（from_task ↔ to_task）任務相依
+        ├─< TaskAttachment（附件）
+        ├─< TaskCheckin（打卡）
+        ├─< TimeLog（工時紀錄）
+        └─ milestone_id → Milestone
+```
+
+（`<` 代表一對多。）
+
+### 五大領域
+
+| 領域 | 主要資料表 | 邏輯重點 |
+|---|---|---|
+| 使用者與權限 | `users`、`project_members` | 雙層角色制（見下） |
+| 專案與任務 | `projects`、`tasks`、`milestones`、`task_assignees`、`task_comments`、`task_dependencies`、`task_field_values`、`project_fields` | 任務可巢狀、可相依、可自訂欄位 |
+| 協作與互動 | `task_attachments`、`comment_reactions`、`task_checkins`、`notifications`、`announcements` | 附件、emoji 反應、打卡、通知、公告 |
+| 日常作業 | `daily_tasks`、`daily_task_labels`、`daily_tasks_archive` | 獨立於專案的個人工作流，可關聯任務、可封存 |
+| 組織與範本 | `org_units`、`user_calendar_grants`、`project_templates`、`template_tasks`、`system_settings` | AD/LDAP 同步的組織樹、行事曆授權、專案範本、系統設定 |
+
+### 權限模型（雙層角色）
+
+權限分為兩層，是整個資料邏輯的關鍵設計：
+
+- **全域角色**（`users.role`）：`admin` / `member` / `viewer`，決定系統層級權限（如 admin 可管理組織與帳號、可見所有專案）。
+- **專案角色**（`project_members.role`）：`owner` / `manager` / `member` / `viewer`，同一使用者在不同專案可有不同角色。
+
+`User` ⇄ `Project` 為多對多，中間表 `project_members` 同時記錄「成員身分」與「該專案內的角色」。
+
+### 進階結構
+
+- **組織樹（`org_units`）**：`parent_id` 自參考組成樹狀組織；`org_units.manager_user_id` 與 `users.org_unit_id` 互相參照形成 FK 環（以 `use_alter` 延後建立約束打破循環）。支撐 AD/LDAP 同步——組織從 AD 帶入、使用者掛載單位、主管自動可見其單位及子單位。
+- **日常作業冷熱分離**：`daily_tasks` 為獨立於專案的個人工作流；已完成的舊作業搬至 `daily_tasks_archive` 歷史封存區，使活動列表保持精簡，並可選擇性以 `linked_task_id` 關聯到專案任務。
+
+### 刪除行為（資料完整性）
+
+外鍵的 `ondelete` 策略界定資料生命週期：
+
+- **CASCADE（連帶刪除）**：多數從屬資料——刪任務時，其留言／附件／工時／打卡／欄位值／相依一併刪除。
+- **SET NULL（斷開但保留）**：如 `org_units.parent_id`、`users.org_unit_id`、`milestone_logs.task_id`——刪父層時子資料不孤兒化，而是斷開關聯（例如刪組織單位，成員僅脫離單位而非被刪）。
 
 ---
 
