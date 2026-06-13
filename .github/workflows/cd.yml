@@ -227,6 +227,30 @@ jobs:
           echo " (V1/V2 core + V3 P1 new APIs)"
           echo "=============================="
 
+      # ── DAST：對運行中的 staging 後端做動態掃描（OWASP ZAP baseline）──
+      # baseline 為被動掃描（爬取＋分析回應/安全標頭，不發動攻擊 payload），
+      # 適合放在 CD。初期設 allow_issue_writing=false 且不擋 build，先觀察報告；
+      # 待基準穩定後可移除 continue-on-error 改為擋關（對應 G6 安全 gate）。
+      - name: DAST — OWASP ZAP baseline scan
+        if: success()
+        continue-on-error: true
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: http://localhost:8000
+          cmd_options: "-I"
+          allow_issue_writing: false
+          fail_action: false
+
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-baseline-report
+          path: |
+            report_html.html
+            report_md.md
+          if-no-files-found: ignore
+
       - name: Stop backend
         if: always()
         run: kill $(cat /tmp/backend.pid) 2>/dev/null || true
