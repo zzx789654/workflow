@@ -71,16 +71,39 @@ async def _auto_archive_loop() -> None:  # pragma: no cover - 無窮排程迴圈
             await asyncio.sleep(3600)  # 出錯後等 1 小時再試
 
 
+async def _ad_sync_loop() -> None:  # pragma: no cover - 無窮排程迴圈，核心 sync_ad_org_tree 已另行單元測
+    """每日 01:00 自動同步 AD/OU 組織樹（僅 auth_backend=ldap 時實際動作）。"""
+    from app.core.ad_sync import sync_ad_org_tree
+
+    while True:
+        try:
+            now = datetime.now()
+            target = now.replace(hour=1, minute=0, second=0, microsecond=0)
+            if now >= target:
+                target = target.replace(day=target.day + 1)
+            await asyncio.sleep((target - now).total_seconds())
+            async with AsyncSessionLocal() as db:
+                summary = await sync_ad_org_tree(db)
+            logger.info("AD sync: %s", summary.message)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.exception("AD sync error: %s", exc)
+            await asyncio.sleep(3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # pragma: no cover - 啟動/收尾序列，測試以 dependency override 跳過
     await _ensure_superadmin()
-    task = asyncio.create_task(_auto_archive_loop())
+    tasks = [asyncio.create_task(_auto_archive_loop()), asyncio.create_task(_ad_sync_loop())]
     yield
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    for task in tasks:
+        task.cancel()
+    for task in tasks:
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -100,7 +123,24 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Total-Count"],
 )
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    """補上常見安全回應標頭（DAST/被動掃描檢查項）。
+
+    這是純 API 後端，前端另以 nginx 服務；此處只設與 API 回應相關、
+    不影響 JSON 行為的標頭。瀏覽器端的 CSP 等由前端 nginx 負責。
+    """
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+    return response
+
 
 app.include_router(v1_router)
 

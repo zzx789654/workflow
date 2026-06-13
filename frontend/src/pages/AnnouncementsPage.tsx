@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { announcementsApi } from '../api/announcements'
+import { confirm } from '../stores/confirmStore'
 import { useAuthStore } from '../stores/authStore'
 
 export default function AnnouncementsPage() {
@@ -33,7 +34,7 @@ export default function AnnouncementsPage() {
   }
 
   const handleDeactivate = async (id: string) => {
-    if (!confirm('確定要關閉此公告？')) return
+    if (!(await confirm({ title: '關閉公告', message: '確定要關閉此公告？', confirmLabel: '關閉' }))) return
     await announcementsApi.deactivate(id)
     setList(l => l.filter(a => a.id !== id))
   }

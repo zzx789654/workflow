@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { projectsApi } from '../../api/projects'
+import { confirm } from '../../stores/confirmStore'
 import { toast } from '../../stores/toastStore'
 import { api } from '../../api/client'
 import type { ProjectMember, User, ProjectRole } from '../../types'
@@ -68,7 +69,7 @@ export default function MembersTab({ projectId }: Props) {
 
   const handleRemove = async (userId: string, memberRole: string) => {
     if (memberRole === 'owner') { toast.error('無法移除專案擁有者'); return }
-    if (!confirm('確定移除此成員？')) return
+    if (!(await confirm({ title: '移除成員', message: '確定移除此成員？', confirmLabel: '移除', danger: true }))) return
     await projectsApi.removeMember(projectId, userId)
     await load()
   }

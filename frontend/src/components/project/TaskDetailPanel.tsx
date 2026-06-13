@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import type { Task, ProjectField, FieldValue, TaskDependency, User, DailyTask } from '../../types'
 import { tasksApi } from '../../api/tasks'
+import { confirm } from '../../stores/confirmStore'
 import { dailyTasksApi } from '../../api/dailyTasks'
 import { customFieldsApi } from '../../api/customFields'
 import { dependenciesApi } from '../../api/dependencies'
@@ -62,6 +63,29 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
       await fetchTasks(projectId)
       setEditingDates(false)
     } finally { setSavingDates(false) }
+  }
+
+  // 標題 / 描述 / 優先度 編輯
+  const [editingInfo, setEditingInfo] = useState(false)
+  const [draftTitle, setDraftTitle] = useState(task.title)
+  const [draftDesc, setDraftDesc] = useState(task.description ?? '')
+  const [draftPriority, setDraftPriority] = useState(task.priority)
+  const [savingInfo, setSavingInfo] = useState(false)
+
+  const handleSaveInfo = async () => {
+    const title = draftTitle.trim()
+    if (!title) { toast.error('標題不可為空'); return }
+    setSavingInfo(true)
+    try {
+      await tasksApi.update(projectId, task.id, {
+        title,
+        description: draftDesc.trim() || undefined,
+        priority: draftPriority,
+      })
+      await fetchTasks(projectId)
+      setEditingInfo(false)
+      toast.success('已更新')
+    } finally { setSavingInfo(false) }
   }
 
   // 複製
@@ -198,7 +222,7 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
   }
 
   const handleDelete = async () => {
-    if (!confirm('確定要刪除此任務？')) return
+    if (!(await confirm({ title: '刪除任務', message: '確定要刪除此任務？', confirmLabel: '刪除', danger: true }))) return
     await deleteTask(projectId, task.id)
     onClose()
   }
@@ -208,22 +232,81 @@ export default function TaskDetailPanel({ task, projectId, onClose }: Props) {
       <div className="w-full max-w-lg bg-white h-full overflow-y-auto shadow-xl" onClick={e => e.stopPropagation()}>
         <div className="p-6 space-y-5">
 
-          {/* 標題 */}
-          <div className="flex items-start justify-between">
-            <h2 className="text-xl font-bold text-gray-900 flex-1 pr-4">{task.title}</h2>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+          {/* 標題列（含關閉與編輯切換）*/}
+          <div className="flex items-start justify-between gap-3">
+            {editingInfo ? (
+              <input
+                className="input text-lg font-bold flex-1"
+                value={draftTitle}
+                onChange={e => setDraftTitle(e.target.value)}
+                placeholder="任務標題"
+                autoFocus
+              />
+            ) : (
+              <h2 className="text-xl font-bold text-gray-900 flex-1 pr-4">{task.title}</h2>
+            )}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {!editingInfo && (
+                <button
+                  onClick={() => {
+                    setDraftTitle(task.title)
+                    setDraftDesc(task.description ?? '')
+                    setDraftPriority(task.priority)
+                    setEditingInfo(true)
+                  }}
+                  className="text-xs text-primary-600 hover:underline"
+                >編輯</button>
+              )}
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            </div>
           </div>
 
-          {/* 狀態 / 優先度 badges */}
-          <div className="flex gap-2 flex-wrap text-sm">
-            <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full">{STATUS_LABELS[task.status]}</span>
-            <span className="bg-blue-100 text-blue-600 px-3 py-1 rounded-full">{PRIORITY_LABELS[task.priority]}</span>
-            {task.due_date && <span className="bg-orange-100 text-orange-600 px-3 py-1 rounded-full">截止 {task.due_date}</span>}
-          </div>
+          {editingInfo ? (
+            <>
+              {/* 優先度（編輯態）*/}
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-xs text-gray-500">優先度</span>
+                <select
+                  className="input w-32 text-sm"
+                  value={draftPriority}
+                  onChange={e => setDraftPriority(e.target.value as Task['priority'])}
+                >
+                  <option value="low">低</option>
+                  <option value="medium">中</option>
+                  <option value="high">高</option>
+                  <option value="urgent">緊急</option>
+                </select>
+              </div>
 
-          {/* 描述 */}
-          {task.description && (
-            <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap">{task.description}</div>
+              {/* 描述（編輯態）*/}
+              <textarea
+                className="input w-full text-sm min-h-[80px]"
+                value={draftDesc}
+                onChange={e => setDraftDesc(e.target.value)}
+                placeholder="任務描述（可留空）"
+              />
+
+              <div className="flex gap-2">
+                <button onClick={handleSaveInfo} disabled={savingInfo} className="btn-primary text-sm disabled:opacity-50">
+                  {savingInfo ? '儲存中…' : '儲存'}
+                </button>
+                <button onClick={() => setEditingInfo(false)} className="btn-secondary text-sm">取消</button>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* 狀態 / 優先度 badges */}
+              <div className="flex gap-2 flex-wrap text-sm">
+                <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full">{STATUS_LABELS[task.status]}</span>
+                <span className="bg-blue-100 text-blue-600 px-3 py-1 rounded-full">{PRIORITY_LABELS[task.priority]}</span>
+                {task.due_date && <span className="bg-orange-100 text-orange-600 px-3 py-1 rounded-full">截止 {task.due_date}</span>}
+              </div>
+
+              {/* 描述 */}
+              {task.description && (
+                <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap">{task.description}</div>
+              )}
+            </>
           )}
 
           {/* ── 日期（起始/結束/截止，可行內編輯）─────── */}

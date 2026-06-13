@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { templatesApi } from '../api/templates'
+import { confirm } from '../stores/confirmStore'
 import { projectsApi } from '../api/projects'
 import type { ProjectTemplate, Project } from '../types'
 
@@ -498,7 +499,7 @@ export default function TemplatesPage() {
   useEffect(() => { load() }, [])
 
   const handleDelete = async (id: string) => {
-    if (!confirm('確定刪除此範本？')) return
+    if (!(await confirm({ title: '刪除範本', message: '確定刪除此範本？', confirmLabel: '刪除', danger: true }))) return
     await templatesApi.delete(id)
     load()
   }

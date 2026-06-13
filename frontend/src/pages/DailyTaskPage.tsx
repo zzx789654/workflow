@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { dailyTasksApi } from '../api/dailyTasks'
+import { confirm } from '../stores/confirmStore'
 import type { DailyTask, DailyTaskStatus } from '../types'
 import TaskLinkPicker from '../components/ui/TaskLinkPicker'
 
@@ -279,8 +280,8 @@ interface ImportResult { created: number; errors: string[]; total_rows: number }
 
 function TaskRow({ task, onUpdated, onDeleted, onEdit }: {
   task: DailyTask
-  onUpdated: () => void
-  onDeleted: () => void
+  onUpdated: (id: string) => void
+  onDeleted: (id: string) => void
   onEdit: () => void
 }) {
   const [hours, setHours] = useState(task.work_minutes ? Math.round(task.work_minutes / 60 * 10) / 10 : 0)
@@ -292,7 +293,7 @@ function TaskRow({ task, onUpdated, onDeleted, onEdit }: {
     const wasTerminal = task.status === 'done' || task.status === 'cancelled'
     const ended_at = terminal && !wasTerminal ? todayDate() : undefined
     await dailyTasksApi.update(task.id, { status, ended_at } as any)
-    onUpdated()
+    onUpdated(task.id)
   }
 
   const handleHoursBlur = async () => {
@@ -301,13 +302,13 @@ function TaskRow({ task, onUpdated, onDeleted, onEdit }: {
     setSaving(true)
     try {
       await dailyTasksApi.update(task.id, { work_minutes: newMinutes } as any)
-      onUpdated()
+      onUpdated(task.id)
     } finally { setSaving(false) }
   }
 
   const handleLinkChange = async (val: LinkVal) => {
     await dailyTasksApi.update(task.id, { linked_task_id: val?.taskId ?? null } as any)
-    onUpdated()
+    onUpdated(task.id)
     setLinking(false)
   }
 
@@ -404,9 +405,9 @@ function TaskRow({ task, onUpdated, onDeleted, onEdit }: {
           <button
             className="text-xs text-red-400 hover:text-red-600 py-1"
             onClick={async () => {
-              if (!confirm('確定刪除？')) return
+              if (!(await confirm({ title: '刪除作業', message: '確定刪除此日常作業？', confirmLabel: '刪除', danger: true }))) return
               await dailyTasksApi.delete(task.id)
-              onDeleted()
+              onDeleted(task.id)
             }}
           >刪除</button>
         </div>
@@ -484,37 +485,82 @@ function InlineAddForm({ onAdded, labelSuggestions }: { onAdded: () => void; lab
 export default function DailyTaskPage() {
   const [allTasks, setAllTasks] = useState<DailyTask[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [total, setTotal] = useState(0)
   const [filterLabel, setFilterLabel] = useState('')
   const [filterStatus, setFilterStatus] = useState<DailyTaskStatus | null>(null)
   const [editing, setEditing] = useState<DailyTask | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
-  const [renderLimit, setRenderLimit] = useState(PAGE_SIZE)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // 逐頁拉取游標：避免並發載入造成重複頁；以 ref 持有以利 observer 取最新值
+  const loadingMoreRef = useRef(false)
 
+  // 重新載入第一頁（篩選變更或匯入後）
   const load = useCallback(async () => {
     setLoading(true)
-    setRenderLimit(PAGE_SIZE)
     try {
       const res = await dailyTasksApi.list({
         label: filterLabel || undefined,
+        limit: PAGE_SIZE,
+        offset: 0,
       })
       setAllTasks(res.data)
+      setTotal(Number(res.headers['x-total-count'] ?? res.data.length))
     } finally { setLoading(false) }
   }, [filterLabel])
+
+  // 載入下一頁，累積到 allTasks
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current) return
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    try {
+      const res = await dailyTasksApi.list({
+        label: filterLabel || undefined,
+        limit: PAGE_SIZE,
+        offset: allTasks.length,
+      })
+      setAllTasks(prev => [...prev, ...res.data])
+      const t = res.headers['x-total-count']
+      if (t != null) setTotal(Number(t))
+    } finally {
+      setLoadingMore(false)
+      loadingMoreRef.current = false
+    }
+  }, [filterLabel, allTasks.length])
+
+  // 刪除後就地移除單筆，不重抓整頁 → 捲動位置與其餘已載入資料維持不變
+  const removeOne = useCallback((id: string) => {
+    setAllTasks(prev => prev.filter(t => t.id !== id))
+    setTotal(n => Math.max(0, n - 1))
+  }, [])
+
+  // 更新後就地替換單筆（重抓該筆以取得伺服器計算欄位如 ended_at）
+  const updateOne = useCallback(async (id: string) => {
+    try {
+      const res = await dailyTasksApi.get(id)
+      setAllTasks(prev => prev.map(t => (t.id === id ? res.data : t)))
+    } catch {
+      // 取不到（可能已被刪）就移除，避免殘留
+      setAllTasks(prev => prev.filter(t => t.id !== id))
+    }
+  }, [])
 
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
     if (!bottomRef.current) return
     const obs = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) setRenderLimit(n => n + PAGE_SIZE) },
+      ([entry]) => {
+        if (entry.isIntersecting && allTasks.length < total) loadMore()
+      },
       { rootMargin: '200px' }
     )
     obs.observe(bottomRef.current)
     return () => obs.disconnect()
-  }, [loading])
+  }, [loading, allTasks.length, total, loadMore])
 
   const handleDownloadTemplate = async () => {
     const res = await dailyTasksApi.downloadTemplate()
@@ -571,8 +617,9 @@ export default function DailyTaskPage() {
     return list
   }, [allTasks, filterStatus, filterLabel])
 
-  const visibleTasks = filteredTasks.slice(0, renderLimit)
-  const hasMore = renderLimit < filteredTasks.length
+  // 已載入的（後端分頁逐頁累積）全部顯示；是否還有更多看「已載入 < 總數」
+  const visibleTasks = filteredTasks
+  const hasMore = allTasks.length < total
 
   const hasFilter = filterStatus !== null || filterLabel !== ''
 
@@ -681,18 +728,22 @@ export default function DailyTaskPage() {
               <TaskRow
                 key={t.id}
                 task={t}
-                onUpdated={load}
-                onDeleted={load}
+                onUpdated={updateOne}
+                onDeleted={removeOne}
                 onEdit={() => setEditing(t)}
               />
             ))}
           </div>
           <div ref={bottomRef} className="h-4" />
-          {hasMore && (
+          {hasMore ? (
             <div className="text-center py-4 text-sm text-gray-400">
-              顯示 {visibleTasks.length} / {filteredTasks.length} 筆，向下捲動載入更多…
+              {loadingMore
+                ? '載入更多…'
+                : `已載入 ${allTasks.length} / ${total} 筆，向下捲動載入更多…`}
             </div>
-          )}
+          ) : total > PAGE_SIZE ? (
+            <div className="text-center py-4 text-xs text-gray-400">已載入全部 {total} 筆</div>
+          ) : null}
         </>
       )}
 
@@ -701,7 +752,7 @@ export default function DailyTaskPage() {
         <DailyTaskModal
           task={editing}
           onClose={() => setEditing(null)}
-          onSave={() => { load(); setEditing(null) }}
+          onSave={() => { updateOne(editing.id); setEditing(null) }}
           labelSuggestions={allLabels}
         />
       )}

@@ -2,6 +2,8 @@ import { api } from './client'
 import type { CalendarEvent } from '../types'
 
 export const calendarApi = {
-  getEvents: (year: number, month: number, label?: string) =>
-    api.get<CalendarEvent[]>('/calendar/', { params: { year, month, label } }),
+  getEvents: (year: number, month: number, label?: string, includeTeam?: boolean) =>
+    api.get<CalendarEvent[]>('/calendar/', {
+      params: { year, month, label, include_team: includeTeam || undefined },
+    }),
 }

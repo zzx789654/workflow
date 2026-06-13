@@ -28,6 +28,16 @@ class UserUpdate(BaseModel):
     email: EmailStr | None = None  # 僅 local 帳號可改（後端守門）
 
 
+class AdminUserUpdate(BaseModel):
+    """admin 專用：維護使用者的組織歸屬與職位。一般使用者不可自改（防越權竄改歸屬）。"""
+
+    org_unit_id: uuid.UUID | None = None
+    position: str | None = Field(None, max_length=100)
+    # 顯式區分「未提供」與「清空」：set_unit/set_position 為 True 時才套用對應欄位
+    set_org_unit: bool = False
+    set_position: bool = False
+
+
 class UserOut(BaseModel):
     id: uuid.UUID
     username: str
@@ -37,6 +47,8 @@ class UserOut(BaseModel):
     role: UserRole
     is_active: bool
     avatar_url: str | None
+    org_unit_id: uuid.UUID | None
+    position: str | None
     auto_archive_days: int
     created_at: datetime
 

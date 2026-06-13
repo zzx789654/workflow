@@ -4,6 +4,7 @@ import { dailyTasksApi } from '../api/dailyTasks'
 import { projectsApi } from '../api/projects'
 import { useAuthStore } from '../stores/authStore'
 import { toast } from '../stores/toastStore'
+import { confirm } from '../stores/confirmStore'
 import type { ArchiveHistoryItem, ArchiveHistoryStats, Project } from '../types'
 
 type Tab = 'daily' | 'projects'
@@ -90,7 +91,7 @@ export default function HistoryPage() {
   }
 
   const handleDeleteProject = async (p: Project) => {
-    if (!confirm(`確定永久刪除「${p.name}」？此操作無法復原。`)) return
+    if (!(await confirm({ title: '刪除專案', message: `確定永久刪除「${p.name}」？此操作無法復原。`, confirmLabel: '刪除', danger: true }))) return
     await projectsApi.delete(p.id)
     loadProjects()
   }

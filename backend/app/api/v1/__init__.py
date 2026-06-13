@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     insights,
     milestones,
     notifications,
+    org_units,
     projects,
     reactions,
     recurring,
@@ -33,6 +34,7 @@ from app.api.v1.endpoints import (
 router = APIRouter(prefix="/api/v1")
 router.include_router(auth.router)
 router.include_router(users.router)
+router.include_router(org_units.router)
 router.include_router(projects.router)
 router.include_router(milestones.router)
 # bulk_tasks 必須在 tasks 之前註冊：/tasks/bulk 需優先於 /tasks/{task_id} 匹配，

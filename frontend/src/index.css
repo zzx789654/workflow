@@ -2,9 +2,103 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   主題系統 (Appearance system)
+   三個正交維度，全部掛在 <html>，CSS 變數接管，不碰任何元件：
+     - 配色 palette : <html data-palette="indigo|ocean|forest|sunset|mono">
+     - 明暗 mode    : <html class="dark">（沿用既有機制）
+     - 特效 fx      : <html data-fx="flat|glass|soft">
+   變數以 "R G B" 空格分隔，搭配 rgb(var(--x) / <alpha>) 供 Tailwind 透明度使用。
+   ============================================================ */
+:root {
+  /* 品牌主色（隨 palette 變）— 預設 indigo，等同改版前的硬編碼值 */
+  --primary-50:  238 242 255;
+  --primary-100: 224 231 255;
+  --primary-200: 199 210 254;
+  --primary-500: 99 102 241;
+  --primary-600: 79 70 229;
+  --primary-700: 67 56 202;
+
+  /* 中性層（隨 mode 變）— 預設 light，沿用 gray-50/white/200/900 */
+  --surface-app:    249 250 251;  /* 主內容區背景 = gray-50 */
+  --surface-card:   255 255 255;  /* 卡片/側欄/頂欄 = white */
+  --surface-muted:  243 244 246;  /* 次級面板 = gray-100 */
+  --border-base:    229 231 235;  /* 邊框 = gray-200 */
+  --border-subtle:  243 244 246;  /* 淡邊框 = gray-100 */
+  --text-strong:    17 24 39;     /* 主文字 = gray-900 */
+  --text-base:      55 65 81;     /* 內文 = gray-700 */
+  --text-muted:     107 114 128;  /* 次要 = gray-500 */
+
+  /* 特效相關（隨 fx 變）— 預設 flat：不透明、無模糊、無氛圍漸層 */
+  --card-alpha: 1;                /* 卡片不透明度 */
+  --card-blur: 0px;               /* backdrop blur 半徑 */
+  --card-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --app-gradient: none;           /* 主內容區氛圍漸層 */
+
+  /* 讓原生控件（select 下拉清單、option、date picker、捲軸）跟隨明暗 */
+  color-scheme: light;
+}
+
+/* ── 配色主題（覆寫 --primary-*）─────────────────────────── */
+:root[data-palette='ocean'] {
+  --primary-50:  236 254 255; --primary-100: 207 250 254; --primary-200: 165 243 252;
+  --primary-500: 6 182 212;   --primary-600: 8 145 178;   --primary-700: 14 116 144;
+}
+:root[data-palette='forest'] {
+  --primary-50:  236 253 245; --primary-100: 209 250 229; --primary-200: 167 243 208;
+  --primary-500: 16 185 129;  --primary-600: 5 150 105;   --primary-700: 4 120 87;
+}
+:root[data-palette='sunset'] {
+  --primary-50:  255 247 237; --primary-100: 255 237 213; --primary-200: 254 215 170;
+  --primary-500: 249 115 22;  --primary-600: 234 88 12;   --primary-700: 194 65 12;
+}
+:root[data-palette='mono'] {
+  --primary-50:  248 250 252; --primary-100: 241 245 249; --primary-200: 226 232 240;
+  --primary-500: 100 116 139; --primary-600: 71 85 105;   --primary-700: 51 65 85;
+}
+
+/* ── 明暗：深色覆寫中性層（任何 palette 通用）──────────────── */
+:root.dark {
+  --surface-app:    3 7 18;       /* gray-950 */
+  --surface-card:   17 24 39;     /* gray-900 */
+  --surface-muted:  31 41 55;     /* gray-800 */
+  --border-base:    31 41 55;     /* gray-800 */
+  --border-subtle:  31 41 55;
+  --text-strong:    243 244 246;  /* gray-100 */
+  --text-base:      209 213 219;  /* gray-300 */
+  --text-muted:     156 163 175;  /* gray-400 */
+  --card-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  color-scheme: dark;            /* 原生 select 下拉/option/picker 改深色面板 */
+}
+
+/* ── 視覺特效 ─────────────────────────────────────────────── */
+/* Glass：半透明 + 毛玻璃 + 主題色氛圍漸層 */
+:root[data-fx='glass'] {
+  --card-alpha: 0.72;
+  --card-blur: 12px;
+  --card-shadow: 0 4px 24px -8px rgb(var(--primary-600) / 0.18);
+  --app-gradient:
+    radial-gradient(60rem 40rem at 110% -10%, rgb(var(--primary-500) / 0.10), transparent 60%),
+    radial-gradient(50rem 40rem at -10% 110%, rgb(var(--primary-600) / 0.08), transparent 60%);
+}
+:root[data-fx='glass'].dark { --card-alpha: 0.55; }
+
+/* Soft：去硬邊框、多層柔光陰影、輕微氛圍 */
+:root[data-fx='soft'] {
+  --card-shadow: 0 10px 30px -12px rgb(17 24 39 / 0.18), 0 2px 6px -2px rgb(17 24 39 / 0.08);
+  --border-base:   238 240 244;
+  --border-subtle: 244 246 249;
+  --app-gradient: radial-gradient(70rem 50rem at 50% -20%, rgb(var(--primary-500) / 0.05), transparent 70%);
+}
+:root[data-fx='soft'].dark {
+  --card-shadow: 0 10px 30px -12px rgb(0 0 0 / 0.5), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+}
+
 @layer base {
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    @apply antialiased;
+    background-color: rgb(var(--surface-app));
+    color: rgb(var(--text-strong));
   }
 
   /* Smooth scroll */
@@ -16,7 +110,102 @@
   :focus-visible {
     @apply outline-none ring-2 ring-primary-500 ring-offset-1;
   }
+
+  :root[data-motion='off'] *,
+  :root[data-motion='off'] *::before,
+  :root[data-motion='off'] *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
 }
+
+/* ----------------------------------------------------------------
+   深色相容層 (dark fallback) — 置於 @layer 之外的純 CSS
+   大量頁面用硬編碼 text-gray、bg、border 工具類而未寫 dark 變體，
+   深色下對比不足。這裡在 .dark 作用域對高頻灰階工具類做重映射，
+   一處覆蓋全站、僅深色生效、淺色完全不變。
+   置於 @layer 之外，在最終 CSS 排於 Tailwind utilities 之後，
+   故元素自帶的 dark 變體（同特異性、源序更後）仍會贏過此後備；
+   此層只兜底「沒寫 dark 變體的硬編碼工具類」。
+   刻意排除：純色語義(red green blue amber 文字)、帶透明度變體不誤改。
+   ---------------------------------------------------------------- */
+/* 文字灰階 */
+.dark .text-gray-900 { color: rgb(243 244 246); } /* → gray-100 */
+.dark .text-gray-800 { color: rgb(229 231 235); } /* → gray-200 */
+.dark .text-gray-700 { color: rgb(209 213 219); } /* → gray-300 */
+.dark .text-gray-600 { color: rgb(180 185 194); }
+.dark .text-gray-500 { color: rgb(156 163 175); } /* → gray-400 */
+.dark .text-gray-400 { color: rgb(120 128 140); }
+.dark .text-gray-300 { color: rgb(100 108 120); }
+
+/* 底色面板（卡片/下拉/彈窗等） */
+.dark .bg-white     { background-color: rgb(17 24 39); }  /* → gray-900 */
+.dark .bg-gray-50   { background-color: rgb(31 41 55); }  /* → gray-800 */
+.dark .bg-gray-100  { background-color: rgb(38 48 64); }
+.dark .bg-gray-200  { background-color: rgb(55 65 81); }  /* → gray-700 */
+
+/* 邊框 */
+.dark .border-gray-100 { border-color: rgb(31 41 55); }  /* → gray-800 */
+.dark .border-gray-200 { border-color: rgb(45 55 72); }
+.dark .border-gray-300 { border-color: rgb(55 65 81); }  /* → gray-700 */
+
+/* hover 態（滑過底色），維持可感知對比。
+   用屬性選擇器避開 \: \/ 轉義 combinator（PostCSS selector parser 無法解析）。 */
+.dark [class~="hover:bg-gray-50"]:hover  { background-color: rgb(31 41 55); }
+.dark [class~="hover:bg-gray-100"]:hover { background-color: rgb(38 48 64); }
+.dark [class~="hover:bg-white/60"]:hover { background-color: rgb(31 41 55 / 0.6); }
+
+/* 淡色語義底（資訊框）在深色下降低亮度、避免刺眼 */
+.dark .bg-blue-50    { background-color: rgb(30 58 138 / 0.25); }
+.dark .bg-amber-50   { background-color: rgb(120 53 15 / 0.25); }
+.dark .bg-green-50   { background-color: rgb(20 83 45 / 0.25); }
+.dark .bg-red-50     { background-color: rgb(127 29 29 / 0.25); }
+.dark .bg-yellow-50  { background-color: rgb(113 63 18 / 0.25); }  /* 看板「審查中」欄 */
+.dark .bg-orange-50  { background-color: rgb(124 45 18 / 0.25); }  /* 今日截止卡 */
+.dark .bg-indigo-50  { background-color: rgb(49 46 129 / 0.25); }  /* 月曆今日格 / 專案任務卡 */
+.dark .bg-emerald-50 { background-color: rgb(6 95 70 / 0.25); }    /* 月曆日常作業卡 */
+.dark .bg-primary-50 { background-color: rgb(var(--primary-600) / 0.22); }
+
+/* 淺彩底 -*-100（標籤/月曆事件/優先級）在深色下改深色半透明，
+   讓底變深、文字才看得清；搭配下方 text-*-700/600 提亮。 */
+.dark .bg-indigo-100  { background-color: rgb(67 56 202 / 0.30); }
+.dark .bg-emerald-100 { background-color: rgb(6 95 70 / 0.35); }
+.dark .bg-blue-100    { background-color: rgb(30 64 175 / 0.30); }
+.dark .bg-yellow-100  { background-color: rgb(133 77 14 / 0.35); }
+.dark .bg-orange-100  { background-color: rgb(154 52 18 / 0.30); }
+.dark .bg-red-100     { background-color: rgb(153 27 27 / 0.30); }
+.dark .bg-green-100   { background-color: rgb(22 101 52 / 0.35); }
+.dark .bg-violet-100  { background-color: rgb(91 33 182 / 0.30); }
+.dark .bg-purple-100  { background-color: rgb(107 33 168 / 0.30); }
+.dark .bg-primary-100 { background-color: rgb(var(--primary-600) / 0.30); }  /* 排序鈕選中態等 */
+
+/* 淺彩底上的深色語義文字：深色模式下底已轉深，文字需提亮才可讀 */
+.dark .text-indigo-700,  .dark .text-indigo-600  { color: rgb(165 180 252); }
+.dark .text-emerald-700, .dark .text-emerald-600 { color: rgb(110 231 183); }
+.dark .text-blue-700,    .dark .text-blue-600    { color: rgb(147 197 253); }
+.dark .text-yellow-700,  .dark .text-yellow-600  { color: rgb(253 224 71); }
+.dark .text-orange-700,  .dark .text-orange-600  { color: rgb(253 186 116); }
+.dark .text-red-700,     .dark .text-red-600     { color: rgb(252 165 165); }
+.dark .text-green-700,   .dark .text-green-600   { color: rgb(134 239 172); }
+.dark .text-violet-700,  .dark .text-violet-600  { color: rgb(196 181 253); }
+.dark .text-purple-700,  .dark .text-purple-600  { color: rgb(216 180 254); }
+.dark .text-primary-700, .dark .text-primary-600 { color: rgb(var(--primary-200)); }
+
+/* 列表優先級等用 -500 純色文字（無底色），深色下提亮以維持對比 */
+.dark .text-yellow-500 { color: rgb(250 204 21); }  /* 優先級「中」 */
+.dark .text-orange-500 { color: rgb(251 146 60); }  /* 優先級「高」 */
+.dark .text-red-500    { color: rgb(248 113 113); }
+.dark .text-green-500  { color: rgb(74 222 128); }
+.dark .text-blue-500   { color: rgb(96 165 250); }
 
 @layer components {
   .btn-primary {
@@ -26,10 +215,15 @@
            disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
   }
   .btn-secondary {
-    @apply bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg font-medium
-           hover:bg-gray-50 hover:border-gray-400 active:scale-95
+    @apply text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg font-medium
+           border active:scale-95
            transition-all duration-150 ease-out
            disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: rgb(var(--surface-card));
+    border-color: rgb(var(--border-base));
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background-color: rgb(var(--surface-muted));
   }
   .btn-danger {
     @apply bg-red-500 text-white px-4 py-2 rounded-lg font-medium
@@ -38,16 +232,41 @@
            disabled:opacity-50;
   }
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-4
-           transition-shadow duration-200;
+    @apply rounded-xl p-4 transition-shadow duration-200;
+    background-color: rgb(var(--surface-card) / var(--card-alpha));
+    border: 1px solid rgb(var(--border-base));
+    box-shadow: var(--card-shadow);
+    backdrop-filter: blur(var(--card-blur));
+    -webkit-backdrop-filter: blur(var(--card-blur));
   }
   .card-hover {
-    @apply card hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer;
+    @apply card hover:-translate-y-0.5 transition-all duration-200 cursor-pointer;
   }
   .input {
-    @apply w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
+    @apply w-full rounded-lg px-3 py-2 text-sm border
            focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent
            transition-shadow duration-150 placeholder:text-gray-400;
+    background-color: rgb(var(--surface-card));
+    border-color: rgb(var(--border-base));
+    color: rgb(var(--text-strong));
+  }
+  /* 深色模式下的原生 <select>（含手寫樣式、未套 .input 者）：
+     明確指定當前值與展開 option 的面板色，避免 Windows Chrome 等
+     瀏覽器忽略 color-scheme 而出現白底白字 / 透明背景看不清。 */
+  .dark select {
+    background-color: rgb(var(--surface-card));
+    color: rgb(var(--text-strong));
+  }
+  .dark select option {
+    background-color: rgb(var(--surface-card));
+    color: rgb(var(--text-strong));
+  }
+  /* 深色模式保險：手寫 text 類 input/textarea（未套 .input、用了 border-gray
+     但沒給背景色）在深色卡片上會白底黑字或透明難辨。統一補上面板色與文字色。
+     bg-transparent / 已套 .input 的不受影響（各自覆寫優先）。 */
+  .dark input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not(.input),
+  .dark textarea:not(.input) {
+    color: rgb(var(--text-strong));
   }
 
   /* Modal backdrop fade-in */
@@ -56,7 +275,10 @@
     animation: fade-in 0.15s ease-out;
   }
   .modal-panel {
-    @apply bg-white rounded-xl shadow-xl w-full;
+    @apply rounded-xl shadow-xl w-full;
+    background-color: rgb(var(--surface-card) / var(--card-alpha));
+    backdrop-filter: blur(var(--card-blur));
+    -webkit-backdrop-filter: blur(var(--card-blur));
     animation: slide-up 0.2s ease-out;
   }
 
@@ -66,15 +288,17 @@
            transition-all duration-150 ease-out;
   }
   .nav-item-active {
-    @apply nav-item bg-primary-50 text-primary-700 border-l-2 border-primary-500 pl-[10px];
+    @apply nav-item bg-primary-50 text-primary-700 border-l-2 border-primary-500 pl-[10px]
+           dark:bg-primary-500/10 dark:text-primary-200;
   }
   .nav-item-inactive {
-    @apply nav-item text-gray-600 hover:bg-gray-100 hover:text-gray-900;
+    @apply nav-item text-gray-600 hover:bg-gray-100 hover:text-gray-900
+           dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100;
   }
 
   /* Skeleton shimmer */
   .skeleton {
-    @apply bg-gray-200 rounded animate-pulse;
+    @apply bg-gray-200 dark:bg-gray-800 rounded animate-pulse;
   }
 
   /* Toast */
@@ -93,6 +317,20 @@
     animation: fade-in 0.2s ease-out;
   }
 
+  /* 側欄／頂欄面板：flat 時等同實心 white/gray-900；glass 時半透明＋模糊 */
+  .surface-panel {
+    background-color: rgb(var(--surface-card) / var(--card-alpha));
+    backdrop-filter: blur(var(--card-blur));
+    -webkit-backdrop-filter: blur(var(--card-blur));
+  }
+
+  /* 主內容區氛圍漸層層（fx=glass/soft 時顯現） */
+  .app-surface {
+    background-color: rgb(var(--surface-app));
+    background-image: var(--app-gradient);
+    background-attachment: fixed;
+  }
+
   /* Badge pill */
   .badge {
     @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
@@ -107,7 +345,7 @@
   }
   .scrollbar-thin::-webkit-scrollbar { width: 4px; }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-  .scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded-full; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-gray-300 dark:bg-gray-700 rounded-full; }
 }
 
 @keyframes fade-in {

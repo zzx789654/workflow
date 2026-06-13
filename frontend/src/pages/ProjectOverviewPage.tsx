@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { projectsApi } from '../api/projects'
 import { useAuthStore } from '../stores/authStore'
 import { toast } from '../stores/toastStore'
+import { confirm } from '../stores/confirmStore'
 import type { ProjectOverviewItem } from '../types'
 
 const COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
@@ -77,7 +78,7 @@ export default function ProjectOverviewPage() {
   }
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`確定永久刪除「${name}」？此操作無法復原。`)) return
+    if (!(await confirm({ title: '刪除專案', message: `確定永久刪除「${name}」？此操作無法復原。`, confirmLabel: '刪除', danger: true }))) return
     await projectsApi.delete(id)
     toast.success('已刪除')
     load()

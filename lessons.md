@@ -1,3 +1,222 @@
+## [2026-06-13] 輪結 Round 21 — 深色模式原生 select/input 對比修正
+
+- 現況：**G2✅（修正完成、build 通過）；前端 production build 綠燈，CSS 修正已編譯生效**
+- 問題（使用者回報＋截圖）：切深色模式時，成員頁角色下拉 `<select>` 白底白字看不清；展開的 option 清單是系統淺色面板。
+- 根因：(1) 全域 CSS 沒設 `color-scheme`，瀏覽器原生控件（select 下拉/option/date picker/捲軸）一律走系統淺色；(2) 多個手寫 select/input（MembersTab 1 + SettingsPage 3 + TaskLinkPicker 等）只寫 `border-gray-200` 沒給背景色與文字色，深色卡片上透明＋繼承色不定 → 白底白字。`.input` class 本身有用 `--surface-card`/`--text-strong` 變數，是正常的；壞的都是「沒套 .input 的手寫表單控件」。
+- 修法（全域、最小改動）：在 `:root` 設 `color-scheme: light`、`:root.dark` 設 `color-scheme: dark`；再加全域保險 `.dark select`/`.dark select option`/`.dark input:not(.input):not([type=checkbox]…)` 明確指定面板色與文字色。**沒有逐檔改 12 個元件**，一次 CSS 覆蓋全部現有與未來的 select。
+- 驗證：frontend 容器內 `tsc --noEmit` 無錯、`npm run build` 450 modules 綠燈、grep 編譯後 CSS 確認 `color-scheme:dark` 與 `.dark select{…}` 規則都在。
+
+## [2026-06-13] 輪結 Round 26 — DAST API scan（主動掃描 + 修安全標頭）
+
+- 現況：**G3✅（ZAP API scan 主動掃 83 端點，0 High/Medium；修掉 2 個 Low）**
+- 做法：ZAP `zap-api-scan.py` 匯入後端 OpenAPI（/openapi.json，83 path），對所有端點做**主動掃描**（發 SQLi/XSS/命令注入/路徑穿越/SSTI 等 payload）。
+- 結果：High 0 / Medium 0；**所有注入類主動規則全 PASS**（SQLi 各方言、XSS persistent/DOM、OS command、path traversal、SSTI、XXE…）。305 個「Client Error」= ZAP 攻擊 payload 被正確擋下回 4xx（好事）。
+- 真發現（2 Low，出現在 /health、/openapi.json 基礎端點）：缺 `X-Content-Type-Options`、`Cross-Origin-Resource-Policy` 標頭。
+- 修法：main.py 加 `@app.middleware("http")` security_headers，全域補 X-Content-Type-Options=nosniff、X-Frame-Options=DENY、Referrer-Policy=no-referrer、Cross-Origin-Resource-Policy=same-origin。重掃驗證消失。
+- 教訓 85：baseline（被動）vs api-scan（主動）差很多——baseline 只爬首頁看標頭，api-scan 匯入 OpenAPI 後逐端點打攻擊 payload，才是真攻擊面測試。代價：會在 DB 寫測試資料、較慢、具侵入性，只在測試環境跑。API 後端的安全標頭用一個 http middleware 全域補最省事；CSP 等瀏覽器層標頭歸前端 nginx，不放 API。
+
+## [2026-06-13] 輪結 Round 25 — DAST 動態掃描（CD 加 ZAP + 本機前後端實跑）
+
+- 現況：**G3✅（DAST 實跑前後端，0 High/Medium/Low，僅資訊級）**
+- 做法：CD staging 已起後端，於 E2E 後加 OWASP ZAP baseline（被動掃描），報告存 artifact，初期不擋部署（continue-on-error）。本機則用 Docker 起完整堆疊（前+後+DB+Redis），ZAP 容器以 `host.docker.internal` 連主機服務，實掃 8000/5173。
+- 結果：
+  - 後端 8000：High 0 / Medium 0 / Low 0；僅 1 個資訊級「Storable and Cacheable Content」（404 頁面的快取標頭，非弱點）。66 條被動規則 PASS（CSP、HSTS、cookie、XSS、CSRF、PII、source disclosure… 全過）。
+  - 前端 5173：FAIL 0；僅 1 資訊級「Non-Storable Content」（403 頁）。66 PASS。
+  - 注意：DAST 對 SPA/API 的 spider 有限（baseline 主要被動掃首頁＋robots/sitemap），不等於完整覆蓋；真正攻擊面測試需 ZAP full scan 或 API scan + OpenAPI 規格匯入。
+- 教訓 84：DAST≠SAST 的位置——DAST 需運行中的應用，只能掛 CD（staging 起服務後），不能放 CI。容器內掃主機服務要用 `host.docker.internal`（+ `--add-host=...:host-gateway`），容器的 localhost 是它自己。ZAP baseline 是被動、輕量、適合 CD 常態；要測注入/認證繞過等主動攻擊面得用 full/API scan，但那較慢且具侵入性，別放每次部署。
+
+## [2026-06-13] 輪結 Round 24 — 用自訂對話框取代原生 confirm()（去除「Code」系統視窗）
+
+- 現況：**G2✅（全 app 12 處 confirm 統一，build 綠燈）**
+- 問題：刪除確認跳出「電腦上的視窗」、標題顯示「Code」。根因 = 程式用瀏覽器原生 `confirm()`，那是系統級對話框，標題自動帶來源名（Code）、改不掉、不吃深色模式、會凍結頁面。
+- 解法（沿用 toastStore 的全域呼叫式範式）：新增 `confirmStore`（`confirm(opts):Promise<boolean>`，store 持有狀態＋resolve）＋ `ConfirmDialog` 元件（用既有 modal-backdrop/panel + btn-danger，支援深色、Esc 取消/Enter 確認），掛在 App 根一次。把 12 處 `if(!confirm(x))` 改成 `if(!(await confirm({message:x,danger:true})))`，handler 本就是 async。
+- 驗證：grep 確認無殘留原生 confirm；tsc 無錯（12 處 await 皆合法）；build 綠燈。
+- 教訓 83：原生 `confirm/alert/prompt` 是系統對話框，標題（來源名）改不掉、不吃 app 主題、阻塞執行緒。產品級 app 一律用自訂對話框；做成「全域 Promise 式 API」（store + 根節點掛一個元件）就能像原生一樣一行 `await confirm(...)` 呼叫，又完全可控。
+
+## [2026-06-13] 輪結 Round 23 — 任務列表體驗：移除批量、樂觀更新、版面固定、詳情編輯
+
+- 現況：**G2✅（多項前端體驗修正，build 全綠）**
+- 版面固定：Layout 最外層 `min-h-screen` → `h-screen overflow-hidden`，讓側邊欄（設定/登出）與頂欄固定，只有 `<main>` 捲動。根因是 min-h 允許整頁超過視窗高，導致整個 window 捲、`<main>` 的 overflow-y-auto 從未生效。
+- 日常作業樂觀更新：刪除/狀態/工時/關聯/編輯改成「就地操作單筆」（removeOne 過濾、updateOne 重抓單筆），取代每次 `load()` 重置回第一頁。解決「刪第 50-60 筆每刪一筆跳回頂部」。TaskRow 回調簽名改帶 id。新增（InlineAddForm）仍回第一頁（合理）。
+- 移除專案任務列表的勾選/批量：使用者要求簡化。刪掉 checkbox 欄、頂部批量操作栏、Undo toast 及相關 state/handler，只留排序＋單筆狀態下拉。JS bundle 變小。
+- 詳情面板補編輯：TaskDetailPanel 標題原本是純 `<h2>`、描述只讀、優先度只是 badge。加「編輯」切換 → 標題 input／優先度 select／描述 textarea，存檔走 `tasksApi.update`（後端 PATCH 已支援 title/description/priority，實測 200）。
+- 教訓 82：本機用 Git Bash + curl 傳**中文 JSON body** 易因編碼被後端判 400「error parsing the body」，誤以為 API 壞。驗 API 用 ASCII，中文路徑交給瀏覽器（UTF-8 fetch）或 python 發。別被 shell 編碼假象帶偏。
+
+## [2026-06-13] 輪結 Round 22 — 日常作業 API 分頁（效能：全量拉取改逐頁）
+
+- 現況：**G2✅（前後端完成、測試綠燈）；後端 9→13 測試通過（含 4 個新分頁測試），前端 tsc/build 綠燈**
+- 問題：使用者問「日常作業超過 1000 筆會怎樣」。盤查發現 `GET /daily-tasks/` 無分頁、全量回傳（含 selectinload 關聯），前端 DailyTaskPage 也只傳 label 全量拉取 → 1000+ 筆首屏線性變慢（列表渲染本身有漸進渲染 PAGE_SIZE=50 擋住，不會卡，但傳輸/序列化/記憶體會痛）。
+- 設計（向後相容，最小衝擊）：保留回傳裸陣列 `list[DailyTaskOut]`（10+ 測試與其他呼叫端都把 body 當陣列，改成物件會全炸）；新增可選 `limit`(ge=1,le=500)/`offset`(ge=0)；總數放 **回應標頭 X-Total-Count**（不破壞 body），main.py CORS 加 `expose_headers=["X-Total-Count"]` 否則前端跨域讀不到。count 與資料查詢共用同一組 where（含 label join），避免總數與分頁不一致。
+- 前端：`load()` 拉第一頁(limit=50,offset=0) 讀 header 得 total；`loadMore()` 用 offset=allTasks.length 逐頁累積，IntersectionObserver 觸發、用 ref 防並發重複頁；底部顯示「已載入 N / total」。
+- 驗證：實打 API（分頁切片正確、X-Total-Count 正確、limit 0/999、offset -1 皆 422）；獨立測試 DB 跑 test_daily_tasks 全綠。
+
+### 教訓 / 準則
+
+**教訓 80：改既有 API 契約前先 grep 所有呼叫端與測試斷言，能相容就別改 body 形狀**
+- 情境（Round 22）：要加分頁，最直覺是回 `{items,total}`，但 grep 出 10+ 測試都 `for t in resp.json()` / `== []`，前端與其他端也吃裸陣列。改物件 = 全面破壞。
+- 準則：列表加分頁時，優先「裸陣列不動 + 總數走 header(X-Total-Count) + limit/offset 可選且預設維持舊行為」。需要時才升級成信封物件，且同步改所有斷言。header 跨域要 `expose_headers`。
+- **How to apply：** 動任何 response_model 前先 `grep -rn '端點路徑' tests/ src/`；分頁 count 與 data 必須套同一組 where（尤其有 join 的 label 篩選），否則 total 與頁內容對不上。
+
+**教訓 81：跑測試務必用獨立測試 DB，別連到運行中的部署 DB**
+- 情境（Round 22）：一開始沒設 DATABASE_URL，conftest 對「運行中的部署 DB(workflow_db)」drop_all，撞上 alembic 建的 FK 約束（fk_org_units_manager_user_id）與 metadata 不一致 → ProgrammingError，看起來像我改壞了，其實無關。
+- 準則：本機/容器內跑測試前，先把 DATABASE_URL 指到一個專用測試 DB（`CREATE DATABASE wf_pgtest` 或臨時容器），絕不讓 conftest 的 drop_all/create_all 動到正在服務的 DB。容器內取真實密碼：`export DATABASE_URL=$(echo $DATABASE_URL | sed 's#/workflow_db#/wf_pgtest#')`。
+
+### 補修（同輪第四批）：列表狀態無法變更 = api client 雙 /api/v1 前綴 bug（真功能缺陷）
+- 使用者回報：任務列表（TaskListView）的狀態下拉改不動；另優先級「中」(`text-yellow-500`) 深色對比差。
+- 診斷法（不猜）：先對跑著的後端直接 curl `PATCH /api/v1/projects/{pid}/tasks/{tid}` → **200 成功**，證明後端正常、bug 在前端。再讀 api client：`axios.create({ baseURL: '${API_BASE}/api/v1' })`，但 TaskListView 裡 4 個 `api.patch/delete` 又寫了 `/api/v1/projects/...` → 實際打到 `/api/v1/api/v1/...` → **404**。狀態變更、批量改狀態、批量刪除全失效。
+- 修法：移除這 4 處多餘的 `/api/v1` 前綴。grep 全專案確認只此檔有此 bug（`grep -rnE 'api\.(get|post|patch|put|delete)\(\`?/api/v1' src/`）。
+- 對比：補 `.dark .text-{yellow,orange,red,green,blue}-500`（純色文字無底，深色提亮）。
+- 教訓 79：**「點了沒反應」先分前後端——直接打後端 API**。後端 200 就別在 UI 層瞎改（我一度想動 select 的 border/color-scheme，全是誤判）。axios 已設 baseURL 含 `/api/v1` 時，呼叫端只給相對路徑；混用絕對前綴會雙重拼接成 404。新檔/新元件接 api client 前先確認 baseURL 慣例，並用 grep 掃同類雙前綴。
+
+### 補修（同輪第三批）：emerald ≠ green、purple ≠ violet —— 漏映射的真根因
+- 使用者第三次回報：月曆「日常作業」卡（綠）對比差，「專案任務」卡（紫）正常。
+- 真根因：日常作業用 `bg-emerald-50`，但我第二批只補了 `bg-green-50`/`bg-emerald-100`，**漏了 `bg-emerald-50`**。Tailwind 的 emerald/green、purple/violet 是不同色板，不能互相替代。grep 編譯 CSS 一比就現形：`.dark .bg-indigo-50` 存在（紫卡正常）、`.dark .bg-emerald-50` 不存在（綠卡壞）。
+- 補上 `bg-emerald-50`、`bg-purple-100`、`text-purple-700/600`。並把先前誤判時加在 CalendarPage 的內聯 `--text-strong` style 還原（文字色重映射本來就是好的，根因在底色）。
+- 教訓：對比問題要 grep「實際用到的確切色名」逐一比對深色映射有沒有，別假設「綠 = green」。一個診斷指令勝過三次猜測：`grep -rhoE 'bg-[a-z]+-(50|100)' src/ | sort -u` 列出所有用到的，再逐一確認 index.css 有對應 `.dark` 規則。
+
+### 補修（同輪第二批）：淺彩底 bg-*-50/100 在深色未重映射
+- 使用者再回報：看板「審查中」欄（`bg-yellow-50`）、月曆日常作業/專案任務事件（`bg-emerald-100`/`bg-indigo-100` + `text-*-700/600`）、下方事項卡（`bg-emerald-50` + `text-gray-800`）在深色下淺底亮字看不清。
+- 根因：index.css 深色重映射原本只蓋 `bg-blue/amber/green/red-50` 四個，**漏了 yellow/orange/indigo-50 與整排 -100 彩底**；且 `text-gray-800` 被重映射提亮後，配沒變深的淺彩底 → 亮字淺底。
+- 修法：補齊 `bg-*-50`（yellow/orange/indigo/primary）、`bg-*-100`（indigo/emerald/blue/yellow/orange/red/green/violet）深色半透明映射，並把對應 `text-*-700/600` 在深色提亮。編譯後 grep 確認每個 class 有「原始淺色 + .dark 覆寫」兩筆、覆寫在後生效。
+
+### 教訓 / 準則
+
+**教訓 78：深色模式「白底白字」九成是原生控件沒設 color-scheme，先改全域別逐檔補**
+- 情境（Round 21）：select 下拉/option/date picker 在深色下顯示系統淺色面板，是因為沒宣告 `color-scheme`。瀏覽器原生 UI 不吃 Tailwind class，只看 `color-scheme` 與少數可覆寫屬性。
+- 準則：做深色模式時，第一步就在 `:root.dark` 設 `color-scheme: dark`（搭配 light 的 `:root`）。這一行解決所有原生 select/option/input date/捲軸的對比。其次對「手寫、沒走統一 .input class」的表單控件，用全域 `.dark select/input:not(.input)` 規則補背景色＋文字色，比逐檔加 class 穩、改動小、不漏。
+- **How to apply：** 檢查深色模式對比時，先 grep 出「沒套統一表單 class 的手寫 `<select>/<input>`」（`grep <select -A2 | grep className | grep -v input`），它們最常壞；修法優先全域 CSS 而非逐檔。驗證要 grep 編譯後 CSS 確認規則真的有進去（@layer/PostCSS 可能吃掉寫錯的選擇器）。
+
+---
+
+## [2026-06-13] 輪結 Round 20 — 補強 ldap_auth 單元測試（QA 覆蓋率回歸）
+
+- 現況：**G4✅（品質 Exit Criteria 達標）；總覆蓋率 96.38% → 97.26%，仍過 95% gate**
+- QA：使用者要求補測試。本機起臨時 postgres（5433）+ workflow 自身 .venv 照 CI 指令實跑，先量出最薄的 `ldap_auth.py` 只有 62%（85 行缺 32 行，全在遠端目錄連線分支，因 ad_sync 測試 mock 掉了 `list_ous`/`list_users` 整顆函式，沒進到內部）。
+- Dev/Sec：新增 `backend/tests/test_ldap_auth_unit.py`（24 個純單元測試，mock `ldap3` 塞 `sys.modules`），覆蓋 `authenticate_ldap`（成功/找不到/密碼綁定失敗/屬性例外 fallback/ldap3 缺失/連線例外）、`list_users` 與 `list_ous`（成功+多值/name 三層 fallback/跳過無 dn 或無帳號/例外回 None）、純函式 `_first_value`/`_build_user_dn`。`ldap_auth.py` 62% → **100%**。
+- 結果：409 passed（deselect 1 個 Windows-only TLS 權限測試），總覆蓋率 97.26%。
+- 退回事件：無。
+
+### 教訓 / 準則
+
+**教訓 77：mock 掉整顆函式的整合測試，無法覆蓋該函式「內部」的分支——要補就寫直接打內部的單元測試**
+- 情境（Round 20）：ad_sync 測試用 `monkeypatch.setattr(ad_sync_mod, "list_ous", ...)` 把整顆 list_ous/list_users 換成假的，所以 ldap_auth 內部真正的 ldap3 連線、分頁解析、跳過規則、例外處理全都沒被執行 → 覆蓋率卡在 62%。
+- 準則：要量「某模組內部」的覆蓋率，測試的 mock 邊界要壓到比該模組更低層（這裡是 mock `ldap3` 函式庫本身，而非 mock 自家的 list_ous）。mock 邊界訂在哪，覆蓋率就只到哪。
+- **How to apply：** 看 cov 報告某檔很低但「上層整合測試很多」時，先確認那些測試是不是把這顆函式整個 mock 掉了；若是，補一支把 mock 推到外部依賴（函式庫/網路/DB driver）的單元測試，讓內部分支真的跑到。純單元測試不碰 DB/HTTP，跑超快（24 個 0.18s）。
+
+---
+
+## [2026-06-12] 輪結 Round 19 — G11 AD 使用者同步 + 有 DN 自動歸 OU
+
+- 現況：**G1✅ G2✅ G3✅ G4✅ G5✅（本地 CI gate 全綠）；下一步 = G6（migration 021 上線需使用者確認）**
+- PM：使用者確認「有 DN 自動帶入歸 OU、沒 DN 單純同步使用者」+「同步 AD 帳號/姓名/Email/部門/職位，登入時走遠端驗證」+ AD 消失本地停用
+- Dev：
+  - migration 021：users 加 external_id（DN）
+  - ldap_auth.list_users：paged_search user 物件，取 DN/sAMAccountName/displayName/mail/title
+  - ad_sync._apply_users：預建/更新 AD 使用者（auth_source=ldap、placeholder 密碼）→ 有 DN 父 OU 對應則歸屬（不覆蓋手動）→ AD 消失停用；_apply_ous 改回傳 (summary, norm_to_unit) 供歸屬
+  - schema/endpoint/前端 type：AdSyncResult 加 users_created/updated/deactivated
+- Sec：Critical_0/High_0/Medium_0；佔位密碼不可本地登入（登入必走遠端）、來源互斥不接管 local、admin only、只讀不寫回、DN 經 dn_utils。達標
+- QA：385 passed（AD 同步測試擴至 24 個，含 user 預建/歸屬/無對應/手動不覆蓋/消失停用/login 銜接/互斥/AD換OU重歸）；覆蓋率 96.34% ≥95%；ruff 全綠；前端 build 過
+- 退回事件：無；自測攔下 schema 缺 user 欄位（KeyError）即補
+- 過關狀態：G1✅ G2✅ G3✅ G4✅ G5✅ G6⏳
+
+### 教訓 / 準則
+
+**教訓 81：目錄同步預建的「免密碼」帳號，用無效 hash 當佔位、靠來源互斥擋本地登入**
+- 情境：同步預建 AD 使用者不該存可用密碼，但 User.hashed_password 非空；若塞真 bcrypt hash 會開後門，塞空字串則 verify 行為不定
+- 準則：佔位密碼用一個「絕不可能是 bcrypt 輸出」的固定字串（如 `__remote_auth__`）；login 對非 local 帳號一律走遠端驗證、對 local 才 verify_password——兩者疊加確保佔位帳號只能遠端登入。並驗證「佔位密碼本地登入必 401」
+- **How to apply：** 任何「預建/匯入但不存密碼」的帳號，用無效 hash 佔位 + 認證流程依 auth_source 分流，且寫一條「佔位密碼登不進」的測試
+
+**教訓 82：把多階段同步的 commit 收斂到最外層，子函式只 flush**
+- 情境：原 _apply_ous 自己 commit；加上 _apply_users 後變兩階段，各自 commit 會讓「使用者歸屬」與「OU 建立」不在同一交易，中途失敗易半套
+- 準則：多階段寫入（建樹→掛人）讓子函式只 db.flush()（拿 id），由最外層 orchestrator 統一 commit；子函式回傳必要對應表（如 norm_to_unit）給下一階段
+- **How to apply：** 重構「A 階段產出餵 B 階段」的同步流程時，commit 上移、子函式回傳中間結果
+
+### 過程原始輸出位置
+- 後端新檔：alembic/versions/021_user_external_id.py
+- 後端改檔：app/models/user.py（external_id）、app/core/auth_backends/ldap_auth.py（list_users/LdapUserEntry）、app/core/ad_sync.py（_apply_users/_can_auto_assign、_apply_ous 回傳對應表）、app/schemas/org.py + app/api/v1/endpoints/org_units.py（AdSyncResult user 欄位）、tests/test_ad_sync.py（+user 測試）
+- 前端改檔：types/index.ts（AdSyncResult user 欄位）
+- 詳細驗收與判斷機制：待修改.md G11 區段
+
+---
+
+## [2026-06-12] 輪結 Round 18 — G10 AD/OU 組織樹同步（與手動並行）+ 各版本 AD 相容性
+
+- 現況：**G1✅ G2✅ G3✅ G4✅ G5✅（本地 CI gate 模擬全綠）；下一步 = G6（migration 020 上線需使用者確認）**
+- PM：使用者確認 OU 階層展樹、手動+每日自動、AD 只碰 AD 來源不覆蓋手動、OU 消失標停用、沿用現有 bind 服務帳號；追加要求「各版本 Windows AD OU 格式落差自動相容」
+- Dev：
+  - migration 020：org_units 加 source/external_id/is_active（並行隔離 + 冪等鍵 + 停用標記）
+  - core/ad_sync.py：list_ous → DN 解析組樹 → 冪等 upsert（source=ad）→ 消失標停用
+  - core/dn_utils.py（相容層）：split_rdns（尊重跳脫）/normalize_dn（大小寫無關比對鍵）/ou_depth/name_from_dn
+  - ldap_auth.list_ous：paged_search（>1000 OU）+ ou/name/DN 多來源取名
+  - endpoints POST /org-units/sync-ad（admin only）；main.py lifespan 每日 01:00 自動同步
+  - 前端：組織管理頁「立即同步 AD」按鈕 + AD/已停用標籤 + AD 單位層級唯讀（只開放指派主管）
+- Sec：Critical_0/High_0/Medium_0；admin only、ldap3 參數化、只讀不寫回 AD、憑證加密儲存不外洩、fail-safe（連線失敗不動資料）、並行隔離（manual 不被動）。達標
+- QA：377 passed（新增 14 個 ad_sync/dn_utils 測試）；覆蓋率 96.84% ≥95%；ad_sync 97%、dn_utils 96%；ruff 全綠；前端 build 通過
+- 退回事件：無正式退回；自測攔下 dn_utils 大小寫/跳脫 bug（見教訓 78）；誠實揭露使用者自動歸屬未實作（User 未存 DN）
+- 過關狀態：G1✅ G2✅ G3✅ G4✅ G5✅ G6⏳
+
+### 教訓 / 準則
+
+**教訓 78：解析 LDAP/AD DN 一律經正規化層，別用裸 split(",")**
+- 情境：AD 各版本/工具匯出的 DN 大小寫不一（OU=/ou=、DC 值大小寫）、OU 名含逗號會跳脫成 `\,`；裸 `dn.split(",")` 會把假逗號切錯、大小寫不一讓父子 DN 接不起來（樹斷成多個頂層）、冪等比對失效（同 OU 因大小寫被當新單位重建）
+- 準則：DN 處理集中到一個 dn_utils：(1) split_rdns 尊重反斜線跳脫切 RDN；(2) normalize_dn 把屬性名與值都轉小寫當「比對鍵」（原樣 DN 另存 external_id 不回寫）；(3) 取名解跳脫。比對父子、冪等對應一律用正規化鍵，不用原始字串
+- **How to apply：** 任何「拿 DN 比對/組樹/當唯一鍵」的程式，先過 normalize_dn；存 DB 存原樣、比對用正規化
+
+**教訓 79：LDAP search 大型目錄要 paged_search，否則被 MaxPageSize 截斷**
+- 情境：AD 預設 MaxPageSize=1000，OU 或使用者超過時，普通 conn.search 只回前 1000 筆且不報錯，同步會「靜默缺資料」
+- 準則：列舉可能 >1000 筆的 LDAP 查詢用 `conn.extend.standard.paged_search(..., paged_size=500)`；別用單次 search
+- **How to apply：** 任何「列出整個 OU/群組/使用者」的 LDAP 查詢都走 paged_search
+
+**教訓 80：對外整合的「自動帶資料」承諾，先確認來源資料是否真的存在**
+- 情境：原設計承諾「AD 帳號自動帶部門歸屬」，實作時才發現要靠每個使用者的 DN，但現有登入流程只存 display_name/email、沒存 DN，做不到——若硬湊會把人錯掛單位
+- 準則：規劃對外整合的自動化前，先確認所依賴的來源欄位在系統裡真的有；沒有就誠實標為未實作/另開一輪，不臆測填值（寧可 no-op 回 0 也不錯掛）
+- **How to apply：** 設計「依 X 自動帶 Y」時，先查 X 是否已被保存；缺則先補資料來源再做自動化
+
+### 過程原始輸出位置
+- 後端新檔：app/core/ad_sync.py、app/core/dn_utils.py、alembic/versions/020_*.py、tests/test_ad_sync.py
+- 後端改檔：app/models/org.py、app/schemas/org.py、app/core/auth_backends/ldap_auth.py（list_ous）、app/api/v1/endpoints/org_units.py（sync-ad）、app/main.py（_ad_sync_loop）
+- 前端改檔：types/index.ts、api/org.ts、pages/SettingsPage.tsx（OrgTab 同步 UI）
+- 詳細驗收與已知限制：待修改.md G10 區段
+
+---
+
+## [2026-06-12] 輪結 Round 17 — G09 組織階層 + 主管部門日曆堆疊檢視 + 多欄位編輯
+
+- 現況：**G1✅ G2✅ G3✅ G4✅ G5✅（本地 CI gate 模擬全綠）；下一步 = G6（migration 019 上線需使用者確認）**
+- PM：使用者確認任意多層樹狀組織、可視範圍「自動繼承(manager)+admin grant」並用、沿用 admin 編輯、依人員上色+圖例勾選、組織單位設 manager 欄位、接受 DB 變更
+- Dev：
+  - 後端：models/org.py（OrgUnit 自我參照鄰接表 + UserCalendarGrant）；User 加 org_unit_id/position；migration 019（2 表 + users 2 欄）；core/visibility.py（可視範圍解析 = 自管子樹∪grant子樹，應用層 BFS）；endpoints org_units.py（admin CRUD+防成環）、users.py（/{id}/org + calendar-grants）、calendar.py（include_team 堆疊 + user/color）
+  - 前端：CalendarPage 堆疊多色 + 人員圖例逐人勾選顯示/隱藏 + 「堆疊團隊」開關；SettingsPage 新增「組織管理」Tab（樹狀 CRUD + 指派主管）+ 使用者管理展開列編輯部門/課別/職位 + 日曆額外授權
+- Sec：Critical_0 / High_0 / Medium_0；A01 越權逐項（IDOR/欄位竄改/grant 僅 admin 全測）；成環防護；SET NULL 孤兒化；無硬編碼密鑰。達標
+- QA：363 passed（新增 25 個 org/calendar 測試）；覆蓋率 97.22% ≥95%；org.py/schemas/users.py 100%、visibility.py 97%；ruff check+format 全綠；前端 builder image build 通過
+- 退回事件：無正式退回，但 G2/G3 自測過程攔下 2 個真實設計缺陷（見教訓 75/76）+ 順手修 2 個既存問題
+- 過關狀態：G1✅ G2✅ G3✅ G4✅ G5✅ G6⏳
+
+### 教訓 / 準則
+
+**教訓 75：兩個 table 互相 FK（mutual FK）必須用 use_alter=True + 具名約束**
+- 情境：users.org_unit_id → org_units、org_units.manager_user_id → users 互相參照，conftest 的 Base.metadata.drop_all 報 CircularDependencyError 無法排序 DROP
+- 準則：互相 FK 的兩側都加 `ForeignKey(..., use_alter=True, name="fk_...")`，讓 SQLAlchemy 以獨立 ALTER TABLE 建立/卸除約束，化解 create/drop 排序循環
+- **How to apply：** 任何兩表互指（A.x→B、B.y→A）一律在至少一側（保險起見兩側）FK 加 use_alter + name；改 schema 後務必清掉殘留 test DB 再跑（舊表無具名約束會讓 use_alter DROP 找不到約束）
+
+**教訓 76：要 DB 層 SET NULL 行為時，ORM relationship 不可留 cascade=all,delete-orphan**
+- 情境：org_units 自我參照 children 關聯設了 `cascade="all, delete-orphan"`，`db.delete(parent)` 時 ORM 主動載入子列並刪除，蓋過 DB FK 的 ondelete=SET NULL，導致刪父單位連帶刪掉整棵子樹（設計是要子單位升頂層）
+- 準則：當設計意圖是「刪父、子保留並 SET NULL」時，relationship 用 `passive_deletes=True`（不主動載入子列，交給 DB FK 處理），且**不要**加 delete-orphan cascade
+- **How to apply：** 決定刪除行為時，先想清楚要 ORM cascade 還是 DB ondelete；兩者衝突時以實測（建父子→刪父→查子是否還在）驗證，別只看程式碼推斷
+
+**教訓 77：前端缺 .dockerignore 會讓 docker build context 含 host node_modules 壞符號連結**
+- 情境：frontend 無 .dockerignore，`docker build` 把 host（Windows 上 npm install 的）node_modules 一起送進 context，內含 .bin/acorn 等對 Linux 無效的符號連結，build 直接報 "invalid file request"
+- 準則：所有有 Dockerfile 的前端目錄都要有 .dockerignore 排除 node_modules/dist；builder stage 自己 npm install，不需要也不該帶 host 的
+- **How to apply：** 新增前端 Docker 化專案時，.dockerignore 與 Dockerfile 一起建立
+
+### 過程原始輸出位置
+- 後端新檔：app/models/org.py、app/core/visibility.py、app/schemas/org.py、app/api/v1/endpoints/org_units.py、alembic/versions/019_*.py、tests/test_org_calendar.py
+- 後端改檔：app/models/user.py、app/models/__init__.py、app/schemas/user.py、app/api/v1/endpoints/users.py、app/api/v1/endpoints/calendar.py、app/api/v1/__init__.py
+- 前端新檔：src/api/org.ts、frontend/.dockerignore；改檔：types/index.ts、api/calendar.ts、api/users.ts、pages/CalendarPage.tsx、pages/SettingsPage.tsx
+- 詳細驗收與關卡狀態：待修改.md G09 區段
+
+---
+
 ## [2026-06-09] 輪結 Round 16 — 後端測試覆蓋率 50.80%→67%（進行中，目標 90%）
 
 - 現況：**覆蓋率 67%、196 測試全綠、CI gate 調至 65%；下一步 = 繼續補測至 90%（見 待修改.md G04 接續點）**

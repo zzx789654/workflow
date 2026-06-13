@@ -2,7 +2,7 @@ import { api } from './client'
 import type { ArchiveHistoryResponse, DailyTask, DailyTaskStatus } from '../types'
 
 export const dailyTasksApi = {
-  list: (params?: { date?: string; label?: string; pending_only?: boolean }) =>
+  list: (params?: { date?: string; label?: string; pending_only?: boolean; limit?: number; offset?: number }) =>
     api.get<DailyTask[]>('/daily-tasks/', { params }),
 
   get: (id: string) => api.get<DailyTask>(`/daily-tasks/${id}`),
