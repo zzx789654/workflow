@@ -4,6 +4,7 @@ import { useThemeStore } from '../../stores/themeStore'
 import { useNotificationWs } from '../../hooks/useNotificationWs'
 import SearchBar from './SearchBar'
 import NotificationBell from './NotificationBell'
+import ThemeSwitcher from './ThemeSwitcher'
 
 const navItems = [
   { to: '/', label: '儀表板', icon: '🏠', end: true },
@@ -39,9 +40,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     isActive ? 'nav-item-active' : 'nav-item-inactive'
 
   return (
-    <div className="min-h-screen flex dark:bg-gray-950">
+    <div className="min-h-screen flex app-surface">
       {/* 側邊欄 */}
-      <aside className="w-52 flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col">
+      <aside className="w-52 flex-shrink-0 border-r border-gray-200 dark:border-gray-800 flex flex-col surface-panel">
         {/* Logo */}
         <div className="px-4 py-4 border-b border-gray-100 dark:border-gray-800">
           <Link to="/" className="block">
@@ -96,9 +97,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* 主內容 */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-6 py-2.5 flex items-center justify-end gap-3 sticky top-0 z-30">
+        <header className="surface-panel border-b border-gray-200 dark:border-gray-800 px-6 py-2.5 flex items-center justify-end gap-3 sticky top-0 z-30">
           <SearchBar />
           <NotificationBell />
+          <ThemeSwitcher />
           <button
             onClick={toggleDark}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 transition-colors duration-150"
@@ -107,7 +109,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <span className="text-base">{dark ? '☀️' : '🌙'}</span>
           </button>
         </header>
-        <main className="flex-1 p-6 bg-gray-50 dark:bg-gray-950 overflow-y-auto scrollbar-thin page-enter">
+        <main className="flex-1 p-6 app-surface overflow-y-auto scrollbar-thin page-enter">
           {children}
         </main>
       </div>

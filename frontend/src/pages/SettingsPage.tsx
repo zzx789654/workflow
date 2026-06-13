@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '../stores/authStore'
+import { useThemeStore, PALETTES, FX_OPTIONS, MODE_OPTIONS } from '../stores/themeStore'
 import { authApi } from '../api/auth'
 import type { User } from '../types'
 
@@ -18,7 +19,7 @@ const usersApi = {
     api.post('/auth/change-password', { old_password: oldPw, new_password: newPw }),
 }
 
-type Tab = 'profile' | 'users' | 'system' | 'system_config'
+type Tab = 'profile' | 'appearance' | 'users' | 'system' | 'system_config'
 
 const ROLE_LABELS: Record<string, string> = { admin: '管理員', member: '一般成員', viewer: '一般成員' }
 const ROLE_COLORS: Record<string, string> = {
@@ -122,6 +123,100 @@ function ProfileTab() {
             {pwSaving ? '更新中…' : '更新密碼'}
           </button>
         </form>
+      </div>
+    </div>
+  )
+}
+
+// ── 外觀 / 個人化 Tab（所有人可用）────────────────────────────
+function AppearanceTab() {
+  const { palette, mode, fx, motion, setPalette, setMode, setFx, setMotion, reset } = useThemeStore()
+
+  return (
+    <div className="max-w-xl space-y-7">
+      {/* 配色主題 */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">配色主題</h3>
+        <p className="text-xs text-gray-400 mb-3">變更品牌主色，狀態色（成功/警告/危險）維持不變。</p>
+        <div className="grid grid-cols-5 gap-3">
+          {PALETTES.map(p => (
+            <button
+              key={p.id}
+              onClick={() => setPalette(p.id)}
+              className={`flex flex-col items-center gap-1.5 p-2 rounded-xl border transition-all ${
+                palette === p.id
+                  ? 'border-primary-400 bg-primary-50 dark:bg-primary-500/10'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <span className="w-8 h-8 rounded-full shadow-inner" style={{ backgroundColor: p.swatch }} />
+              <span className="text-xs text-gray-600 dark:text-gray-300">{p.label}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* 明暗模式 */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">明暗模式</h3>
+        <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+          {MODE_OPTIONS.map(m => (
+            <button
+              key={m.id}
+              onClick={() => setMode(m.id)}
+              className={`px-4 py-2 text-sm transition-colors ${
+                mode === m.id
+                  ? 'bg-primary-600 text-white'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* 視覺特效 */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">視覺特效</h3>
+        <p className="text-xs text-gray-400 mb-3">改變卡片與面板的質感，不影響任何排版與按鈕位置。</p>
+        <div className="grid grid-cols-3 gap-3">
+          {FX_OPTIONS.map(f => (
+            <button
+              key={f.id}
+              onClick={() => setFx(f.id)}
+              className={`text-left p-3 rounded-xl border transition-all ${
+                fx === f.id
+                  ? 'border-primary-400 bg-primary-50 dark:bg-primary-500/10'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{f.label}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{f.desc}</p>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* 動效 */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">介面動效</h3>
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={motion}
+            onChange={e => setMotion(e.target.checked)}
+            className="w-4 h-4 accent-primary-600"
+          />
+          <span className="text-sm text-gray-600 dark:text-gray-300">
+            啟用進場與互動動效
+            <span className="text-xs text-gray-400 block">關閉後將尊重系統的「減少動態效果」設定</span>
+          </span>
+        </label>
+      </section>
+
+      <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
+        <button onClick={reset} className="btn-secondary text-sm">重設為預設外觀</button>
       </div>
     </div>
   )
@@ -546,6 +641,7 @@ export default function SettingsPage() {
 
   const tabs: { id: Tab; label: string; adminOnly?: boolean }[] = [
     { id: 'profile', label: '個人資料' },
+    { id: 'appearance', label: '外觀' },
     { id: 'users',   label: '使用者管理', adminOnly: true },
     { id: 'system_config', label: '系統設定', adminOnly: true },
     { id: 'system',  label: '系統資訊', adminOnly: true },
@@ -571,6 +667,7 @@ export default function SettingsPage() {
       </nav>
 
       {tab === 'profile'       && <ProfileTab />}
+      {tab === 'appearance'    && <AppearanceTab />}
       {tab === 'users'         && <UsersTab />}
       {tab === 'system_config' && <SystemConfigTab />}
       {tab === 'system'        && <SystemTab />}
