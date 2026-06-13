@@ -80,7 +80,7 @@ export default function TaskListView({ tasks, projectId, onSelect }: Props) {
     if (!bulkStatus || !selected.size) return
     const ids = [...selected]
     const prevStatuses: Record<string, TaskStatus> = Object.fromEntries(tasks.filter(t => ids.includes(t.id)).map(t => [t.id, t.status]))
-    await api.patch(`/api/v1/projects/${projectId}/tasks/bulk`, {
+    await api.patch(`/projects/${projectId}/tasks/bulk`, {
       task_ids: ids,
       status: bulkStatus,
     })
@@ -96,7 +96,7 @@ export default function TaskListView({ tasks, projectId, onSelect }: Props) {
     if (!undoAction) return
     if (undoTimeout) clearTimeout(undoTimeout)
     for (const [id, status] of Object.entries(undoAction.prevStatuses)) {
-      await api.patch(`/api/v1/projects/${projectId}/tasks/bulk`, {
+      await api.patch(`/projects/${projectId}/tasks/bulk`, {
         task_ids: [id],
         status,
       })
@@ -107,7 +107,7 @@ export default function TaskListView({ tasks, projectId, onSelect }: Props) {
 
   const handleBulkDelete = async () => {
     if (!selected.size || !confirm(`確定刪除 ${selected.size} 個任務？`)) return
-    await api.delete(`/api/v1/projects/${projectId}/tasks/bulk`, {
+    await api.delete(`/projects/${projectId}/tasks/bulk`, {
       data: { task_ids: [...selected] },
     })
     await fetchTasks(projectId)
@@ -115,7 +115,7 @@ export default function TaskListView({ tasks, projectId, onSelect }: Props) {
   }
 
   const handleStatusChange = async (task: Task, status: TaskStatus) => {
-    await api.patch(`/api/v1/projects/${projectId}/tasks/${task.id}`, { status })
+    await api.patch(`/projects/${projectId}/tasks/${task.id}`, { status })
     await fetchTasks(projectId)
   }
 

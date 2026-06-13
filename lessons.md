@@ -1,3 +1,55 @@
+## [2026-06-13] 輪結 Round 21 — 深色模式原生 select/input 對比修正
+
+- 現況：**G2✅（修正完成、build 通過）；前端 production build 綠燈，CSS 修正已編譯生效**
+- 問題（使用者回報＋截圖）：切深色模式時，成員頁角色下拉 `<select>` 白底白字看不清；展開的 option 清單是系統淺色面板。
+- 根因：(1) 全域 CSS 沒設 `color-scheme`，瀏覽器原生控件（select 下拉/option/date picker/捲軸）一律走系統淺色；(2) 多個手寫 select/input（MembersTab 1 + SettingsPage 3 + TaskLinkPicker 等）只寫 `border-gray-200` 沒給背景色與文字色，深色卡片上透明＋繼承色不定 → 白底白字。`.input` class 本身有用 `--surface-card`/`--text-strong` 變數，是正常的；壞的都是「沒套 .input 的手寫表單控件」。
+- 修法（全域、最小改動）：在 `:root` 設 `color-scheme: light`、`:root.dark` 設 `color-scheme: dark`；再加全域保險 `.dark select`/`.dark select option`/`.dark input:not(.input):not([type=checkbox]…)` 明確指定面板色與文字色。**沒有逐檔改 12 個元件**，一次 CSS 覆蓋全部現有與未來的 select。
+- 驗證：frontend 容器內 `tsc --noEmit` 無錯、`npm run build` 450 modules 綠燈、grep 編譯後 CSS 確認 `color-scheme:dark` 與 `.dark select{…}` 規則都在。
+
+### 補修（同輪第四批）：列表狀態無法變更 = api client 雙 /api/v1 前綴 bug（真功能缺陷）
+- 使用者回報：任務列表（TaskListView）的狀態下拉改不動；另優先級「中」(`text-yellow-500`) 深色對比差。
+- 診斷法（不猜）：先對跑著的後端直接 curl `PATCH /api/v1/projects/{pid}/tasks/{tid}` → **200 成功**，證明後端正常、bug 在前端。再讀 api client：`axios.create({ baseURL: '${API_BASE}/api/v1' })`，但 TaskListView 裡 4 個 `api.patch/delete` 又寫了 `/api/v1/projects/...` → 實際打到 `/api/v1/api/v1/...` → **404**。狀態變更、批量改狀態、批量刪除全失效。
+- 修法：移除這 4 處多餘的 `/api/v1` 前綴。grep 全專案確認只此檔有此 bug（`grep -rnE 'api\.(get|post|patch|put|delete)\(\`?/api/v1' src/`）。
+- 對比：補 `.dark .text-{yellow,orange,red,green,blue}-500`（純色文字無底，深色提亮）。
+- 教訓 79：**「點了沒反應」先分前後端——直接打後端 API**。後端 200 就別在 UI 層瞎改（我一度想動 select 的 border/color-scheme，全是誤判）。axios 已設 baseURL 含 `/api/v1` 時，呼叫端只給相對路徑；混用絕對前綴會雙重拼接成 404。新檔/新元件接 api client 前先確認 baseURL 慣例，並用 grep 掃同類雙前綴。
+
+### 補修（同輪第三批）：emerald ≠ green、purple ≠ violet —— 漏映射的真根因
+- 使用者第三次回報：月曆「日常作業」卡（綠）對比差，「專案任務」卡（紫）正常。
+- 真根因：日常作業用 `bg-emerald-50`，但我第二批只補了 `bg-green-50`/`bg-emerald-100`，**漏了 `bg-emerald-50`**。Tailwind 的 emerald/green、purple/violet 是不同色板，不能互相替代。grep 編譯 CSS 一比就現形：`.dark .bg-indigo-50` 存在（紫卡正常）、`.dark .bg-emerald-50` 不存在（綠卡壞）。
+- 補上 `bg-emerald-50`、`bg-purple-100`、`text-purple-700/600`。並把先前誤判時加在 CalendarPage 的內聯 `--text-strong` style 還原（文字色重映射本來就是好的，根因在底色）。
+- 教訓：對比問題要 grep「實際用到的確切色名」逐一比對深色映射有沒有，別假設「綠 = green」。一個診斷指令勝過三次猜測：`grep -rhoE 'bg-[a-z]+-(50|100)' src/ | sort -u` 列出所有用到的，再逐一確認 index.css 有對應 `.dark` 規則。
+
+### 補修（同輪第二批）：淺彩底 bg-*-50/100 在深色未重映射
+- 使用者再回報：看板「審查中」欄（`bg-yellow-50`）、月曆日常作業/專案任務事件（`bg-emerald-100`/`bg-indigo-100` + `text-*-700/600`）、下方事項卡（`bg-emerald-50` + `text-gray-800`）在深色下淺底亮字看不清。
+- 根因：index.css 深色重映射原本只蓋 `bg-blue/amber/green/red-50` 四個，**漏了 yellow/orange/indigo-50 與整排 -100 彩底**；且 `text-gray-800` 被重映射提亮後，配沒變深的淺彩底 → 亮字淺底。
+- 修法：補齊 `bg-*-50`（yellow/orange/indigo/primary）、`bg-*-100`（indigo/emerald/blue/yellow/orange/red/green/violet）深色半透明映射，並把對應 `text-*-700/600` 在深色提亮。編譯後 grep 確認每個 class 有「原始淺色 + .dark 覆寫」兩筆、覆寫在後生效。
+
+### 教訓 / 準則
+
+**教訓 78：深色模式「白底白字」九成是原生控件沒設 color-scheme，先改全域別逐檔補**
+- 情境（Round 21）：select 下拉/option/date picker 在深色下顯示系統淺色面板，是因為沒宣告 `color-scheme`。瀏覽器原生 UI 不吃 Tailwind class，只看 `color-scheme` 與少數可覆寫屬性。
+- 準則：做深色模式時，第一步就在 `:root.dark` 設 `color-scheme: dark`（搭配 light 的 `:root`）。這一行解決所有原生 select/option/input date/捲軸的對比。其次對「手寫、沒走統一 .input class」的表單控件，用全域 `.dark select/input:not(.input)` 規則補背景色＋文字色，比逐檔加 class 穩、改動小、不漏。
+- **How to apply：** 檢查深色模式對比時，先 grep 出「沒套統一表單 class 的手寫 `<select>/<input>`」（`grep <select -A2 | grep className | grep -v input`），它們最常壞；修法優先全域 CSS 而非逐檔。驗證要 grep 編譯後 CSS 確認規則真的有進去（@layer/PostCSS 可能吃掉寫錯的選擇器）。
+
+---
+
+## [2026-06-13] 輪結 Round 20 — 補強 ldap_auth 單元測試（QA 覆蓋率回歸）
+
+- 現況：**G4✅（品質 Exit Criteria 達標）；總覆蓋率 96.38% → 97.26%，仍過 95% gate**
+- QA：使用者要求補測試。本機起臨時 postgres（5433）+ workflow 自身 .venv 照 CI 指令實跑，先量出最薄的 `ldap_auth.py` 只有 62%（85 行缺 32 行，全在遠端目錄連線分支，因 ad_sync 測試 mock 掉了 `list_ous`/`list_users` 整顆函式，沒進到內部）。
+- Dev/Sec：新增 `backend/tests/test_ldap_auth_unit.py`（24 個純單元測試，mock `ldap3` 塞 `sys.modules`），覆蓋 `authenticate_ldap`（成功/找不到/密碼綁定失敗/屬性例外 fallback/ldap3 缺失/連線例外）、`list_users` 與 `list_ous`（成功+多值/name 三層 fallback/跳過無 dn 或無帳號/例外回 None）、純函式 `_first_value`/`_build_user_dn`。`ldap_auth.py` 62% → **100%**。
+- 結果：409 passed（deselect 1 個 Windows-only TLS 權限測試），總覆蓋率 97.26%。
+- 退回事件：無。
+
+### 教訓 / 準則
+
+**教訓 77：mock 掉整顆函式的整合測試，無法覆蓋該函式「內部」的分支——要補就寫直接打內部的單元測試**
+- 情境（Round 20）：ad_sync 測試用 `monkeypatch.setattr(ad_sync_mod, "list_ous", ...)` 把整顆 list_ous/list_users 換成假的，所以 ldap_auth 內部真正的 ldap3 連線、分頁解析、跳過規則、例外處理全都沒被執行 → 覆蓋率卡在 62%。
+- 準則：要量「某模組內部」的覆蓋率，測試的 mock 邊界要壓到比該模組更低層（這裡是 mock `ldap3` 函式庫本身，而非 mock 自家的 list_ous）。mock 邊界訂在哪，覆蓋率就只到哪。
+- **How to apply：** 看 cov 報告某檔很低但「上層整合測試很多」時，先確認那些測試是不是把這顆函式整個 mock 掉了；若是，補一支把 mock 推到外部依賴（函式庫/網路/DB driver）的單元測試，讓內部分支真的跑到。純單元測試不碰 DB/HTTP，跑超快（24 個 0.18s）。
+
+---
+
 ## [2026-06-12] 輪結 Round 19 — G11 AD 使用者同步 + 有 DN 自動歸 OU
 
 - 現況：**G1✅ G2✅ G3✅ G4✅ G5✅（本地 CI gate 全綠）；下一步 = G6（migration 021 上線需使用者確認）**

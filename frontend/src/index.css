@@ -34,6 +34,9 @@
   --card-blur: 0px;               /* backdrop blur 半徑 */
   --card-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --app-gradient: none;           /* 主內容區氛圍漸層 */
+
+  /* 讓原生控件（select 下拉清單、option、date picker、捲軸）跟隨明暗 */
+  color-scheme: light;
 }
 
 /* ── 配色主題（覆寫 --primary-*）─────────────────────────── */
@@ -65,6 +68,7 @@
   --text-base:      209 213 219;  /* gray-300 */
   --text-muted:     156 163 175;  /* gray-400 */
   --card-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  color-scheme: dark;            /* 原生 select 下拉/option/picker 改深色面板 */
 }
 
 /* ── 視覺特效 ─────────────────────────────────────────────── */
@@ -161,10 +165,46 @@
 .dark [class~="hover:bg-white/60"]:hover { background-color: rgb(31 41 55 / 0.6); }
 
 /* 淡色語義底（資訊框）在深色下降低亮度、避免刺眼 */
-.dark .bg-blue-50  { background-color: rgb(30 58 138 / 0.25); }
-.dark .bg-amber-50 { background-color: rgb(120 53 15 / 0.25); }
-.dark .bg-green-50 { background-color: rgb(20 83 45 / 0.25); }
-.dark .bg-red-50   { background-color: rgb(127 29 29 / 0.25); }
+.dark .bg-blue-50    { background-color: rgb(30 58 138 / 0.25); }
+.dark .bg-amber-50   { background-color: rgb(120 53 15 / 0.25); }
+.dark .bg-green-50   { background-color: rgb(20 83 45 / 0.25); }
+.dark .bg-red-50     { background-color: rgb(127 29 29 / 0.25); }
+.dark .bg-yellow-50  { background-color: rgb(113 63 18 / 0.25); }  /* 看板「審查中」欄 */
+.dark .bg-orange-50  { background-color: rgb(124 45 18 / 0.25); }  /* 今日截止卡 */
+.dark .bg-indigo-50  { background-color: rgb(49 46 129 / 0.25); }  /* 月曆今日格 / 專案任務卡 */
+.dark .bg-emerald-50 { background-color: rgb(6 95 70 / 0.25); }    /* 月曆日常作業卡 */
+.dark .bg-primary-50 { background-color: rgb(var(--primary-600) / 0.22); }
+
+/* 淺彩底 -*-100（標籤/月曆事件/優先級）在深色下改深色半透明，
+   讓底變深、文字才看得清；搭配下方 text-*-700/600 提亮。 */
+.dark .bg-indigo-100  { background-color: rgb(67 56 202 / 0.30); }
+.dark .bg-emerald-100 { background-color: rgb(6 95 70 / 0.35); }
+.dark .bg-blue-100    { background-color: rgb(30 64 175 / 0.30); }
+.dark .bg-yellow-100  { background-color: rgb(133 77 14 / 0.35); }
+.dark .bg-orange-100  { background-color: rgb(154 52 18 / 0.30); }
+.dark .bg-red-100     { background-color: rgb(153 27 27 / 0.30); }
+.dark .bg-green-100   { background-color: rgb(22 101 52 / 0.35); }
+.dark .bg-violet-100  { background-color: rgb(91 33 182 / 0.30); }
+.dark .bg-purple-100  { background-color: rgb(107 33 168 / 0.30); }
+
+/* 淺彩底上的深色語義文字：深色模式下底已轉深，文字需提亮才可讀 */
+.dark .text-indigo-700,  .dark .text-indigo-600  { color: rgb(165 180 252); }
+.dark .text-emerald-700, .dark .text-emerald-600 { color: rgb(110 231 183); }
+.dark .text-blue-700,    .dark .text-blue-600    { color: rgb(147 197 253); }
+.dark .text-yellow-700,  .dark .text-yellow-600  { color: rgb(253 224 71); }
+.dark .text-orange-700,  .dark .text-orange-600  { color: rgb(253 186 116); }
+.dark .text-red-700,     .dark .text-red-600     { color: rgb(252 165 165); }
+.dark .text-green-700,   .dark .text-green-600   { color: rgb(134 239 172); }
+.dark .text-violet-700,  .dark .text-violet-600  { color: rgb(196 181 253); }
+.dark .text-purple-700,  .dark .text-purple-600  { color: rgb(216 180 254); }
+.dark .text-primary-700, .dark .text-primary-600 { color: rgb(var(--primary-200)); }
+
+/* 列表優先級等用 -500 純色文字（無底色），深色下提亮以維持對比 */
+.dark .text-yellow-500 { color: rgb(250 204 21); }  /* 優先級「中」 */
+.dark .text-orange-500 { color: rgb(251 146 60); }  /* 優先級「高」 */
+.dark .text-red-500    { color: rgb(248 113 113); }
+.dark .text-green-500  { color: rgb(74 222 128); }
+.dark .text-blue-500   { color: rgb(96 165 250); }
 
 @layer components {
   .btn-primary {
@@ -207,6 +247,24 @@
            transition-shadow duration-150 placeholder:text-gray-400;
     background-color: rgb(var(--surface-card));
     border-color: rgb(var(--border-base));
+    color: rgb(var(--text-strong));
+  }
+  /* 深色模式下的原生 <select>（含手寫樣式、未套 .input 者）：
+     明確指定當前值與展開 option 的面板色，避免 Windows Chrome 等
+     瀏覽器忽略 color-scheme 而出現白底白字 / 透明背景看不清。 */
+  .dark select {
+    background-color: rgb(var(--surface-card));
+    color: rgb(var(--text-strong));
+  }
+  .dark select option {
+    background-color: rgb(var(--surface-card));
+    color: rgb(var(--text-strong));
+  }
+  /* 深色模式保險：手寫 text 類 input/textarea（未套 .input、用了 border-gray
+     但沒給背景色）在深色卡片上會白底黑字或透明難辨。統一補上面板色與文字色。
+     bg-transparent / 已套 .input 的不受影響（各自覆寫優先）。 */
+  .dark input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not(.input),
+  .dark textarea:not(.input) {
     color: rgb(var(--text-strong));
   }
 
