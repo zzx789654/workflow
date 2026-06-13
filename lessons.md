@@ -6,6 +6,16 @@
 - 修法（全域、最小改動）：在 `:root` 設 `color-scheme: light`、`:root.dark` 設 `color-scheme: dark`；再加全域保險 `.dark select`/`.dark select option`/`.dark input:not(.input):not([type=checkbox]…)` 明確指定面板色與文字色。**沒有逐檔改 12 個元件**，一次 CSS 覆蓋全部現有與未來的 select。
 - 驗證：frontend 容器內 `tsc --noEmit` 無錯、`npm run build` 450 modules 綠燈、grep 編譯後 CSS 確認 `color-scheme:dark` 與 `.dark select{…}` 規則都在。
 
+## [2026-06-13] 輪結 Round 25 — DAST 動態掃描（CD 加 ZAP + 本機前後端實跑）
+
+- 現況：**G3✅（DAST 實跑前後端，0 High/Medium/Low，僅資訊級）**
+- 做法：CD staging 已起後端，於 E2E 後加 OWASP ZAP baseline（被動掃描），報告存 artifact，初期不擋部署（continue-on-error）。本機則用 Docker 起完整堆疊（前+後+DB+Redis），ZAP 容器以 `host.docker.internal` 連主機服務，實掃 8000/5173。
+- 結果：
+  - 後端 8000：High 0 / Medium 0 / Low 0；僅 1 個資訊級「Storable and Cacheable Content」（404 頁面的快取標頭，非弱點）。66 條被動規則 PASS（CSP、HSTS、cookie、XSS、CSRF、PII、source disclosure… 全過）。
+  - 前端 5173：FAIL 0；僅 1 資訊級「Non-Storable Content」（403 頁）。66 PASS。
+  - 注意：DAST 對 SPA/API 的 spider 有限（baseline 主要被動掃首頁＋robots/sitemap），不等於完整覆蓋；真正攻擊面測試需 ZAP full scan 或 API scan + OpenAPI 規格匯入。
+- 教訓 84：DAST≠SAST 的位置——DAST 需運行中的應用，只能掛 CD（staging 起服務後），不能放 CI。容器內掃主機服務要用 `host.docker.internal`（+ `--add-host=...:host-gateway`），容器的 localhost 是它自己。ZAP baseline 是被動、輕量、適合 CD 常態；要測注入/認證繞過等主動攻擊面得用 full/API scan，但那較慢且具侵入性，別放每次部署。
+
 ## [2026-06-13] 輪結 Round 24 — 用自訂對話框取代原生 confirm()（去除「Code」系統視窗）
 
 - 現況：**G2✅（全 app 12 處 confirm 統一，build 綠燈）**

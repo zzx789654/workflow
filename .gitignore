@@ -13,3 +13,7 @@ redis_data/
 .coverage
 coverage.xml
 htmlcov/
+
+# DAST 掃描報告（本機產物，不入版控）
+zap_reports/
+.zap/
