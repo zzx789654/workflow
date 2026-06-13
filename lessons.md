@@ -6,6 +6,15 @@
 - 修法（全域、最小改動）：在 `:root` 設 `color-scheme: light`、`:root.dark` 設 `color-scheme: dark`；再加全域保險 `.dark select`/`.dark select option`/`.dark input:not(.input):not([type=checkbox]…)` 明確指定面板色與文字色。**沒有逐檔改 12 個元件**，一次 CSS 覆蓋全部現有與未來的 select。
 - 驗證：frontend 容器內 `tsc --noEmit` 無錯、`npm run build` 450 modules 綠燈、grep 編譯後 CSS 確認 `color-scheme:dark` 與 `.dark select{…}` 規則都在。
 
+## [2026-06-13] 輪結 Round 26 — DAST API scan（主動掃描 + 修安全標頭）
+
+- 現況：**G3✅（ZAP API scan 主動掃 83 端點，0 High/Medium；修掉 2 個 Low）**
+- 做法：ZAP `zap-api-scan.py` 匯入後端 OpenAPI（/openapi.json，83 path），對所有端點做**主動掃描**（發 SQLi/XSS/命令注入/路徑穿越/SSTI 等 payload）。
+- 結果：High 0 / Medium 0；**所有注入類主動規則全 PASS**（SQLi 各方言、XSS persistent/DOM、OS command、path traversal、SSTI、XXE…）。305 個「Client Error」= ZAP 攻擊 payload 被正確擋下回 4xx（好事）。
+- 真發現（2 Low，出現在 /health、/openapi.json 基礎端點）：缺 `X-Content-Type-Options`、`Cross-Origin-Resource-Policy` 標頭。
+- 修法：main.py 加 `@app.middleware("http")` security_headers，全域補 X-Content-Type-Options=nosniff、X-Frame-Options=DENY、Referrer-Policy=no-referrer、Cross-Origin-Resource-Policy=same-origin。重掃驗證消失。
+- 教訓 85：baseline（被動）vs api-scan（主動）差很多——baseline 只爬首頁看標頭，api-scan 匯入 OpenAPI 後逐端點打攻擊 payload，才是真攻擊面測試。代價：會在 DB 寫測試資料、較慢、具侵入性，只在測試環境跑。API 後端的安全標頭用一個 http middleware 全域補最省事；CSP 等瀏覽器層標頭歸前端 nginx，不放 API。
+
 ## [2026-06-13] 輪結 Round 25 — DAST 動態掃描（CD 加 ZAP + 本機前後端實跑）
 
 - 現況：**G3✅（DAST 實跑前後端，0 High/Medium/Low，僅資訊級）**

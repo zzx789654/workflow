@@ -126,6 +126,22 @@ app.add_middleware(
     expose_headers=["X-Total-Count"],
 )
 
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    """補上常見安全回應標頭（DAST/被動掃描檢查項）。
+
+    這是純 API 後端，前端另以 nginx 服務；此處只設與 API 回應相關、
+    不影響 JSON 行為的標頭。瀏覽器端的 CSP 等由前端 nginx 負責。
+    """
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+    return response
+
+
 app.include_router(v1_router)
 
 
